@@ -1,0 +1,14 @@
+# Normalize line endings to LF in the repository for all text files (cross-platform consistency).
+* text=auto eol=lf
+
+# Binary assets — never touch line endings.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.npz binary
+*.npy binary
+*.qm binary
+*.pdf binary
+*.xlsx binary
