@@ -13,7 +13,7 @@ def main(argv: list[str] | None = None) -> int:
     """Launch the desktop GUI, or report status if the GUI layer is not yet available."""
     args = list(sys.argv[1:] if argv is None else argv)
     try:
-        from herpetoid.gui.app import run
+        from herpetoid.gui.app import run  # type: ignore[import-not-found]  # GUI layer added later
     except ModuleNotFoundError:
         print(
             "HerpetoID core is installed and importable. The desktop GUI is not available yet "
@@ -21,7 +21,7 @@ def main(argv: list[str] | None = None) -> int:
             "(`herpetoid.api`) are usable programmatically."
         )
         return 0
-    return run(args)
+    return int(run(args))
 
 
 if __name__ == "__main__":
