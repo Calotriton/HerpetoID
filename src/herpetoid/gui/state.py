@@ -11,6 +11,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal
 
+from herpetoid.application.catalog_service import CatalogService
 from herpetoid.application.export import ExportService
 from herpetoid.application.identification import IdentificationService
 from herpetoid.application.project_service import ProjectContext, ProjectService
@@ -44,6 +45,10 @@ class AppState(QObject):
     @property
     def project(self) -> ProjectContext | None:
         return self._project
+
+    @property
+    def catalog(self) -> CatalogService | None:
+        return CatalogService(self._project) if self._project is not None else None
 
     def create_project(self, path: Path, name: str) -> None:
         self._set_project(self._project_service.create(path, name))

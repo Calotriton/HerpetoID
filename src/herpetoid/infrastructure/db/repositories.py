@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from herpetoid.domain import (
@@ -225,6 +225,13 @@ class IndividualRepository:
         )
         return [_individual_to_entity(model) for model in self._session.scalars(stmt)]
 
+    def list_all(self) -> list[Individual]:
+        stmt = select(IndividualModel).order_by(IndividualModel.code)
+        return [_individual_to_entity(model) for model in self._session.scalars(stmt)]
+
+    def count(self) -> int:
+        return int(self._session.scalar(select(func.count()).select_from(IndividualModel)) or 0)
+
 
 class ImageRepository:
     def __init__(self, session: Session) -> None:
@@ -301,3 +308,10 @@ class ObservationRepository:
         model = self._session.get(ObservationModel, observation_id)
         if model is not None:
             self._session.delete(model)
+
+    def list_all(self) -> list[Observation]:
+        stmt = select(ObservationModel).order_by(ObservationModel.observed_at)
+        return [_observation_to_entity(model) for model in self._session.scalars(stmt)]
+
+    def count(self) -> int:
+        return int(self._session.scalar(select(func.count()).select_from(ObservationModel)) or 0)

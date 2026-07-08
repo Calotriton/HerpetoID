@@ -96,3 +96,23 @@ def test_main_window_title_tracks_project(app_state: AppState, tmp_path: Path, q
     assert window.windowTitle() == "HerpetoID"
     app_state.create_project(tmp_path / "p3", "Pyrenees")
     assert "Pyrenees" in window.windowTitle()
+
+
+def test_image_import_creates_observation(app_state: AppState, tmp_path: Path, qtbot) -> None:
+    from PIL import Image as PilImage
+
+    from herpetoid.gui.screens.import_images import ImageImportScreen
+
+    app_state.create_project(tmp_path / "proj", "P")
+    screen = ImageImportScreen(app_state)
+    qtbot.addWidget(screen)
+    assert screen.species_combo.count() >= 1  # Calotriton asper from the registry
+
+    source = tmp_path / "newt.png"
+    PilImage.fromarray(np.zeros((32, 32, 3), np.uint8)).save(source)
+    assert screen.import_files([source]) == 1
+
+    catalog = app_state.catalog
+    assert catalog is not None
+    assert catalog.observation_count() == 1
+    assert list((tmp_path / "proj" / "images").glob("*"))

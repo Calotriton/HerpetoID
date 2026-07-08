@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
 )
 
 from .screens.home import HomeScreen
+from .screens.import_images import ImageImportScreen
 from .screens.placeholder import PlaceholderScreen
 from .screens.plugins import PluginManagerScreen
 from .screens.projects import ProjectManagerScreen
@@ -32,7 +33,7 @@ class MainWindow(QMainWindow):
 
         self._add_screen("Home", HomeScreen())
         self._add_screen("Projects", ProjectManagerScreen(state))
-        self._add_screen("Import", PlaceholderScreen("Image Import"))
+        self._add_screen("Import", ImageImportScreen(state))
         self._add_screen("Observations", PlaceholderScreen("Observation Editor"))
         self._add_screen("Individuals", PlaceholderScreen("Individual Browser"))
         self._add_screen("Candidates", PlaceholderScreen("Candidate Ranking"))
