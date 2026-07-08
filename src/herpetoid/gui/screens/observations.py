@@ -71,6 +71,8 @@ class ObservationsScreen(QWidget):
             ]
             for column, text in enumerate(cells):
                 self.table.setItem(row, column, QTableWidgetItem(text))
+        if self._observations:
+            self.table.selectRow(0)  # show the first observation's image right away
 
     def _on_select(self) -> None:
         project = self._state.project

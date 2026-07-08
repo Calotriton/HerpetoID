@@ -116,6 +116,7 @@ def test_image_import_creates_observation(app_state: AppState, tmp_path: Path, q
     assert catalog is not None
     assert catalog.observation_count() == 1
     assert list((tmp_path / "proj" / "images").glob("*"))
+    assert screen.gallery.count() == 1  # imported image appears as a thumbnail
 
 
 def test_dynamic_form_roundtrip_and_validation(qtbot) -> None:
@@ -196,5 +197,6 @@ def test_observations_screen_lists_and_shows_image(
     qtbot.addWidget(screen)
     assert screen.table.rowCount() == 1
     assert screen.table.item(0, 2).text() == "AL"  # observer column
+    assert screen.viewer.has_image()  # first row auto-selected, image shown without a click
     screen.table.selectRow(0)
     assert screen.viewer.has_image()

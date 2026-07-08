@@ -259,6 +259,10 @@ class ImageRepository:
         stmt = select(ImageModel).where(ImageModel.observation_id == observation_id)
         return [_image_to_entity(model) for model in self._session.scalars(stmt)]
 
+    def list_all(self) -> list[Image]:
+        stmt = select(ImageModel).order_by(ImageModel.id)
+        return [_image_to_entity(model) for model in self._session.scalars(stmt)]
+
 
 class ObservationRepository:
     def __init__(self, session: Session) -> None:

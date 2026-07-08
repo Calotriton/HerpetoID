@@ -1,15 +1,19 @@
-"""Image Import screen: add image files as observations of a chosen species."""
+"""Image Import screen: add image files as observations, with a thumbnail gallery of imports."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
+from PySide6.QtCore import QSize
+from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
     QFileDialog,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QMessageBox,
     QPushButton,
     QVBoxLayout,
@@ -20,6 +24,7 @@ from herpetoid.domain import PluginRef
 from herpetoid.gui.state import AppState
 
 _IMAGE_FILTER = "Images (*.png *.jpg *.jpeg *.tif *.tiff *.bmp)"
+_THUMB = QSize(140, 140)
 
 
 class ImageImportScreen(QWidget):
@@ -49,7 +54,14 @@ class ImageImportScreen(QWidget):
         layout.addWidget(self.status_label)
         self.hint_label = QLabel("Open or create a project first (Projects tab).")
         layout.addWidget(self.hint_label)
-        layout.addStretch(1)
+
+        self.gallery = QListWidget()
+        self.gallery.setViewMode(QListWidget.ViewMode.IconMode)
+        self.gallery.setIconSize(_THUMB)
+        self.gallery.setResizeMode(QListWidget.ResizeMode.Adjust)
+        self.gallery.setMovement(QListWidget.Movement.Static)
+        self.gallery.setSpacing(8)
+        layout.addWidget(self.gallery, 1)
 
         state.project_changed.connect(self._refresh)
         self._refresh()
@@ -62,6 +74,7 @@ class ImageImportScreen(QWidget):
         self.hint_label.setVisible(not has_project)
         self._populate_species()
         self._update_status()
+        self._populate_gallery()
 
     def _populate_species(self) -> None:
         self.species_combo.clear()
@@ -83,6 +96,20 @@ class ImageImportScreen(QWidget):
             f"Observations: {catalog.observation_count()}  ·  "
             f"Individuals: {catalog.individual_count()}"
         )
+
+    def _populate_gallery(self) -> None:
+        self.gallery.clear()
+        project = self._state.project
+        catalog = self._state.catalog
+        if project is None or catalog is None:
+            return
+        for image in catalog.list_images():
+            if not image.thumbnail_path:
+                continue
+            pixmap = QPixmap(str(project.path / image.thumbnail_path))
+            if pixmap.isNull():
+                continue
+            self.gallery.addItem(QListWidgetItem(QIcon(pixmap), image.original_filename))
 
     def _choose_files(self) -> None:
         files, _ = QFileDialog.getOpenFileNames(self, "Add images", "", _IMAGE_FILTER)
@@ -108,4 +135,5 @@ class ImageImportScreen(QWidget):
         for path in paths:
             catalog.import_observation(species.id, [path], observer=observer)
         self._update_status()
+        self._populate_gallery()
         return len(paths)

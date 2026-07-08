@@ -2,13 +2,17 @@
 
 Reused across image import, the observation editor (ROI), the comparison window and dossiers. Displays
 NumPy image arrays (grayscale or RGB/RGBA) via a ``QGraphicsView``.
+
+The view keeps the image fitted (on show and resize) until the user zooms manually — this avoids the
+common ``fitInView`` pitfall where fitting before the widget has its final on-screen size leaves the
+image scaled to nothing.
 """
 
 from __future__ import annotations
 
 import numpy as np
 from PySide6.QtCore import QRectF, Qt
-from PySide6.QtGui import QImage, QPainter, QPixmap, QWheelEvent
+from PySide6.QtGui import QImage, QPainter, QPixmap, QResizeEvent, QShowEvent, QWheelEvent
 from PySide6.QtWidgets import QGraphicsPixmapItem, QGraphicsScene, QGraphicsView, QWidget
 
 _MIN_SCALE = 0.05
@@ -37,6 +41,7 @@ class ImageViewer(QGraphicsView):
         self._scene = QGraphicsScene(self)
         self.setScene(self._scene)
         self._pixmap_item: QGraphicsPixmapItem | None = None
+        self._auto_fit = True
         self.setRenderHints(
             QPainter.RenderHint.Antialiasing | QPainter.RenderHint.SmoothPixmapTransform
         )
@@ -59,8 +64,8 @@ class ImageViewer(QGraphicsView):
         return self._pixmap_item is not None
 
     def reset_view(self) -> None:
-        if self._pixmap_item is not None:
-            self.fitInView(self._pixmap_item, Qt.AspectRatioMode.KeepAspectRatio)
+        self._auto_fit = True
+        self._fit()
 
     def current_scale(self) -> float:
         return float(self.transform().m11())
@@ -68,7 +73,22 @@ class ImageViewer(QGraphicsView):
     def zoom(self, factor: float) -> None:
         target = self.current_scale() * factor
         if _MIN_SCALE <= target <= _MAX_SCALE:
+            self._auto_fit = False  # the user has taken control of the zoom level
             self.scale(factor, factor)
+
+    def _fit(self) -> None:
+        if self._pixmap_item is not None:
+            self.fitInView(self._pixmap_item, Qt.AspectRatioMode.KeepAspectRatio)
 
     def wheelEvent(self, event: QWheelEvent) -> None:
         self.zoom(1.25 if event.angleDelta().y() > 0 else 1 / 1.25)
+
+    def showEvent(self, event: QShowEvent) -> None:
+        super().showEvent(event)
+        if self._auto_fit:
+            self._fit()
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        super().resizeEvent(event)
+        if self._auto_fit:
+            self._fit()
