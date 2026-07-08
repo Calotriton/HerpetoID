@@ -79,6 +79,7 @@ class ProjectService:
         if not db_path.exists():
             raise FileNotFoundError(f"no HerpetoID project database at {db_path}")
         database = Database.at_path(db_path)
+        database.create_schema()  # idempotent: adds any new tables to bundles from older versions
         with database.session() as session:
             project = ProjectRepository(session).get()
         if project is None:

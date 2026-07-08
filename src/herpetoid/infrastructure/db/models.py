@@ -189,6 +189,17 @@ class DescriptorModel(Base):
     )
 
 
+class ImageRoiModel(Base):
+    """A region of interest marked on an image (used to crop the pattern region for matching)."""
+
+    __tablename__ = "image_rois"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    image_id: Mapped[int] = mapped_column(ForeignKey("images.id"), unique=True)
+    kind: Mapped[str] = mapped_column(String(20), default="rectangle")
+    points: Mapped[list[list[float]]] = mapped_column(JSON, default=list)
+
+
 class FieldDefinitionModel(Base):
     """A declared observation field, persisted so a bundle is self-describing without the plugin."""
 

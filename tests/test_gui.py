@@ -142,7 +142,9 @@ def test_import_refreshes_other_screens(app_state: AppState, tmp_path: Path, qtb
     importer.import_files([source])
 
     assert observations.table.rowCount() == 1  # refreshed via project_changed
-    assert candidates.query_combo.count() == 1  # a query is now selectable -> identification can run
+    assert (
+        candidates.query_combo.count() == 1
+    )  # a query is now selectable -> identification can run
 
 
 def test_dynamic_form_roundtrip_and_validation(qtbot) -> None:
@@ -226,6 +228,73 @@ def test_observations_screen_lists_and_shows_image(
     assert screen.viewer.has_image()  # first row auto-selected, image shown without a click
     screen.table.selectRow(0)
     assert screen.viewer.has_image()
+
+
+def test_roi_image_viewer_roundtrip(qtbot) -> None:
+    from herpetoid.api import ROI, ROIKind
+    from herpetoid.gui.widgets.roi_image_viewer import RoiImageViewer
+
+    viewer = RoiImageViewer()
+    qtbot.addWidget(viewer)
+    viewer.set_image(np.zeros((64, 64, 3), np.uint8))
+    assert viewer.roi() is None
+    viewer.set_roi(ROI.rectangle(4, 5, 20, 15))
+    marked = viewer.roi()
+    assert marked is not None
+    assert marked.kind is ROIKind.RECTANGLE
+    assert marked.bounding_box() == (4, 5, 20, 15)
+    viewer.set_draw_mode(True)  # switches interaction mode without error
+    viewer.clear_roi()
+    assert viewer.roi() is None
+
+
+def test_observation_editor_saves_measurements_and_roi(
+    app_state: AppState, tmp_path: Path, qtbot
+) -> None:
+    from PIL import Image as PilImage
+
+    from herpetoid.api import ROI
+    from herpetoid.domain import PluginRef
+    from herpetoid.gui.screens.observations import ObservationsScreen
+
+    app_state.create_project(tmp_path / "proj", "P")
+    catalog = app_state.catalog
+    assert catalog is not None
+    species = catalog.ensure_species(
+        "Calotriton asper", module=PluginRef("calotriton_asper", "1.0")
+    )
+    assert species.id is not None
+    image_path = tmp_path / "i.png"
+    PilImage.fromarray(np.full((64, 64, 3), 120, np.uint8)).save(image_path)
+    observation = catalog.import_observation(species.id, [image_path], observer="AL")
+    assert observation.id is not None
+
+    screen = ObservationsScreen(app_state)
+    qtbot.addWidget(screen)
+    # first row auto-selected -> editor loaded with a species measurement form
+    assert screen._current is not None
+    assert screen._form is not None
+
+    screen.observer_edit.setText("BM")
+    screen.notes_edit.setText("ventral photo")
+    screen.lat_edit.setText("42.6")
+    screen._form.set_values({"svl": 51.0, "sex": "female"})
+    screen.viewer.set_roi(ROI.rectangle(5, 6, 30, 20))
+    screen.save()
+
+    reloaded = catalog.get_observation(observation.id)
+    assert reloaded is not None
+    assert reloaded.observer == "BM"
+    assert reloaded.notes == "ventral photo"
+    assert reloaded.location.latitude == 42.6
+    assert reloaded.measurements["svl"] == 51.0
+    assert reloaded.measurements["sex"] == "female"
+
+    stored_image = catalog.images_for(observation.id)[0]
+    assert stored_image.id is not None
+    saved_roi = catalog.get_image_roi(stored_image.id)
+    assert saved_roi is not None
+    assert saved_roi.bounding_box() == (5, 6, 30, 20)
 
 
 def test_candidate_ranking_identify_and_confirm(app_state: AppState, tmp_path: Path, qtbot) -> None:

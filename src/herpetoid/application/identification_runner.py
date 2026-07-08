@@ -60,8 +60,7 @@ class IdentificationRunner:
             return []
 
         algorithm = self._registry.create_algorithm(algorithm_id)
-        roi = ROI.full_image()
-        query_sample = module.preprocess(self._load(query_image), roi)
+        query_sample = module.preprocess(self._load(query_image), self._roi_for(query_image))
 
         catalog_features: list[FeatureSet] = []
         image_by_ref: dict[str, Image] = {}
@@ -72,7 +71,8 @@ class IdentificationRunner:
             image = self._first_image(observation.id)
             if image is None:
                 continue
-            features = algorithm.extract_features(module.preprocess(self._load(image), roi))
+            sample = module.preprocess(self._load(image), self._roi_for(image))
+            features = algorithm.extract_features(sample)
             ref = str(observation.id)
             features.ref = ref
             catalog_features.append(features)
@@ -120,6 +120,11 @@ class IdentificationRunner:
     def _first_image(self, observation_id: int) -> Image | None:
         images = self._catalog.images_for(observation_id)
         return images[0] if images else None
+
+    def _roi_for(self, image: Image) -> ROI:
+        if image.id is None:
+            return ROI.full_image()
+        return self._catalog.get_image_roi(image.id) or ROI.full_image()
 
     def _load(self, image: Image) -> np.ndarray:
         return self._project.image_store.load(image.rel_path)

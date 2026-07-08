@@ -41,3 +41,41 @@ def test_catalog_service_species_and_import(tmp_path: Path) -> None:
     assert stored[0].measurements["svl"] == 42.0
     assert list((tmp_path / "bundle" / "images").glob("*"))
     context.close()
+
+
+def test_roi_persistence_and_observation_update(tmp_path: Path) -> None:
+    from herpetoid.api import ROI, ROIKind
+
+    context = ProjectService().create(tmp_path / "bundle", "B")
+    catalog = CatalogService(context)
+    species = catalog.ensure_species(
+        "Calotriton asper", module=PluginRef("calotriton_asper", "1.0")
+    )
+    assert species.id is not None
+    source = tmp_path / "newt.png"
+    _image(source)
+    observation = catalog.import_observation(species.id, [source])
+    assert observation.id is not None
+    image = catalog.images_for(observation.id)[0]
+    assert image.id is not None
+
+    # ROI round-trip
+    assert catalog.get_image_roi(image.id) is None
+    catalog.set_image_roi(image.id, ROI.rectangle(5, 6, 40, 30))
+    loaded_roi = catalog.get_image_roi(image.id)
+    assert loaded_roi is not None
+    assert loaded_roi.kind is ROIKind.RECTANGLE
+    assert loaded_roi.bounding_box() == (5, 6, 40, 30)
+
+    # observation update (core fields + measurements)
+    observation.observer = "BM"
+    observation.notes = "a note"
+    observation.measurements = {"svl": 55.0, "sex": "male"}
+    catalog.update_observation(observation)
+    reloaded = catalog.get_observation(observation.id)
+    assert reloaded is not None
+    assert reloaded.observer == "BM"
+    assert reloaded.notes == "a note"
+    assert reloaded.measurements["svl"] == 55.0
+    assert reloaded.measurements["sex"] == "male"
+    context.close()

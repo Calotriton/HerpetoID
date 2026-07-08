@@ -11,6 +11,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
+from herpetoid.api import ROI
 from herpetoid.domain import Image, Individual, Observation, PluginRef, Sex, Species
 
 from .project_service import ProjectContext
@@ -166,3 +167,21 @@ class CatalogService:
 
         with self._project.database.session() as session:
             ObservationRepository(session).link_to_individual(observation_id, individual_id)
+
+    def update_observation(self, observation: Observation) -> None:
+        from herpetoid.infrastructure.db.repositories import ObservationRepository
+
+        with self._project.database.session() as session:
+            ObservationRepository(session).update(observation)
+
+    def get_image_roi(self, image_id: int) -> ROI | None:
+        from herpetoid.infrastructure.db.repositories import ImageRepository
+
+        with self._project.database.session() as session:
+            return ImageRepository(session).get_roi(image_id)
+
+    def set_image_roi(self, image_id: int, roi: ROI) -> None:
+        from herpetoid.infrastructure.db.repositories import ImageRepository
+
+        with self._project.database.session() as session:
+            ImageRepository(session).set_roi(image_id, roi)

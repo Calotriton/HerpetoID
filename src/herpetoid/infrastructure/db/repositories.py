@@ -12,6 +12,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from herpetoid.api import ROI, ROIKind
 from herpetoid.domain import (
     Image,
     ImageAspect,
@@ -27,6 +28,7 @@ from herpetoid.domain import (
 
 from .models import (
     ImageModel,
+    ImageRoiModel,
     IndividualModel,
     MetadataModel,
     ObservationModel,
@@ -263,6 +265,26 @@ class ImageRepository:
         stmt = select(ImageModel).order_by(ImageModel.id)
         return [_image_to_entity(model) for model in self._session.scalars(stmt)]
 
+    def get_roi(self, image_id: int) -> ROI | None:
+        model = self._session.scalars(
+            select(ImageRoiModel).where(ImageRoiModel.image_id == image_id)
+        ).first()
+        if model is None:
+            return None
+        points = tuple((float(p[0]), float(p[1])) for p in model.points)
+        return ROI(kind=ROIKind(model.kind), points=points)
+
+    def set_roi(self, image_id: int, roi: ROI) -> None:
+        points = [[float(x), float(y)] for x, y in roi.points]
+        model = self._session.scalars(
+            select(ImageRoiModel).where(ImageRoiModel.image_id == image_id)
+        ).first()
+        if model is None:
+            self._session.add(ImageRoiModel(image_id=image_id, kind=str(roi.kind), points=points))
+        else:
+            model.kind = str(roi.kind)
+            model.points = points
+
 
 class ObservationRepository:
     def __init__(self, session: Session) -> None:
@@ -306,6 +328,26 @@ class ObservationRepository:
         if model is None:
             raise KeyError(f"no observation with id {observation_id}")
         model.individual_id = individual_id
+
+    def update(self, observation: Observation) -> None:
+        if observation.id is None:
+            raise ValueError("cannot update an observation without an id")
+        model = self._session.get(ObservationModel, observation.id)
+        if model is None:
+            raise KeyError(f"no observation with id {observation.id}")
+        model.observer = observation.observer
+        model.observed_at = _as_datetime(observation.observed_at)
+        model.notes = observation.notes
+        model.individual_id = observation.individual_id
+        model.location_lat = observation.location.latitude
+        model.location_lon = observation.location.longitude
+        model.location_accuracy = observation.location.accuracy_m
+        model.location_name = observation.location.name
+        model.metadata_values.clear()  # cascade delete-orphan removes the old rows
+        for key, value in observation.measurements.items():
+            row = MetadataModel(field_key=key)
+            _assign_metadata_value(row, value)
+            model.metadata_values.append(row)
 
     def delete(self, observation_id: int) -> None:
         """Delete an observation and (via cascade) its images and metadata values."""
