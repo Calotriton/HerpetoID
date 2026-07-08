@@ -116,3 +116,47 @@ def test_image_import_creates_observation(app_state: AppState, tmp_path: Path, q
     assert catalog is not None
     assert catalog.observation_count() == 1
     assert list((tmp_path / "proj" / "images").glob("*"))
+
+
+def test_dynamic_form_roundtrip_and_validation(qtbot) -> None:
+    from herpetoid.gui.widgets.dynamic_form import DynamicForm
+    from herpetoid.plugins.species.calotriton_asper import CalotritonAsperModule
+
+    fields = CalotritonAsperModule().define_observation_fields()
+    form = DynamicForm(fields)
+    qtbot.addWidget(form)
+
+    form.set_values({"svl": 52.3, "sex": "female"})
+    values = form.values()
+    assert values["svl"] == 52.3
+    assert values["sex"] == "female"
+    assert form.validate().ok
+
+    form.set_values({"svl": -5.0})  # below the field's min_value
+    assert not form.validate().ok
+
+
+def test_statistics_screen(app_state: AppState, tmp_path: Path, qtbot) -> None:
+    from PIL import Image as PilImage
+
+    from herpetoid.domain import PluginRef
+    from herpetoid.gui.screens.statistics import StatisticsScreen
+
+    app_state.create_project(tmp_path / "proj", "P")
+    catalog = app_state.catalog
+    assert catalog is not None
+    species = catalog.ensure_species(
+        "Calotriton asper", module=PluginRef("calotriton_asper", "1.0")
+    )
+    assert species.id is not None
+    image = tmp_path / "i.png"
+    PilImage.fromarray(np.zeros((16, 16, 3), np.uint8)).save(image)
+    catalog.import_observation(species.id, [image], measurements={"svl": 40.0, "sex": "female"})
+    catalog.import_observation(species.id, [image], measurements={"svl": 50.0, "sex": "male"})
+
+    screen = StatisticsScreen(app_state)
+    qtbot.addWidget(screen)
+    assert "Observations: 2" in screen.summary_label.text()
+    names = [screen.table.item(r, 0).text() for r in range(screen.table.rowCount())]
+    assert "mean_svl" in names
+    assert "sex_ratio" in names

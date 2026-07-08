@@ -16,6 +16,7 @@ from .screens.import_images import ImageImportScreen
 from .screens.placeholder import PlaceholderScreen
 from .screens.plugins import PluginManagerScreen
 from .screens.projects import ProjectManagerScreen
+from .screens.statistics import StatisticsScreen
 from .state import AppState
 
 
@@ -38,7 +39,7 @@ class MainWindow(QMainWindow):
         self._add_screen("Individuals", PlaceholderScreen("Individual Browser"))
         self._add_screen("Candidates", PlaceholderScreen("Candidate Ranking"))
         self._add_screen("Comparison", PlaceholderScreen("Comparison Window"))
-        self._add_screen("Statistics", PlaceholderScreen("Statistics"))
+        self._add_screen("Statistics", StatisticsScreen(state))
         self._add_screen("Plugins", PluginManagerScreen(state.registry))
         self._add_screen("Settings", PlaceholderScreen("Settings"))
         self._add_screen("Help", PlaceholderScreen("Help"))
