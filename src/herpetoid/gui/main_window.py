@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
 )
 
 from .screens.candidate_ranking import CandidateRankingScreen
+from .screens.help import HelpScreen
 from .screens.home import HomeScreen
 from .screens.import_images import ImageImportScreen
 from .screens.individuals import IndividualBrowserScreen
@@ -46,7 +47,7 @@ class MainWindow(QMainWindow):
         self._add_screen("Statistics", StatisticsScreen(state))
         self._add_screen("Plugins", PluginManagerScreen(state.registry))
         self._add_screen("Settings", SettingsScreen(state))
-        self._add_screen("Help", PlaceholderScreen("Help"))
+        self._add_screen("Help", HelpScreen())
 
         self._nav.currentRowChanged.connect(self._stack.setCurrentIndex)
 

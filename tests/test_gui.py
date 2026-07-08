@@ -295,3 +295,12 @@ def test_individual_browser(app_state: AppState, tmp_path: Path, qtbot) -> None:
     assert screen.table.item(0, 0).text() == "CA-001"
     assert screen.table.item(0, 3).text() == "1"  # one linked observation
     assert screen.viewer.has_image()
+
+
+def test_help_screen_renders_manual(qtbot) -> None:
+    from herpetoid.gui.screens.help import HelpScreen
+
+    screen = HelpScreen()
+    qtbot.addWidget(screen)
+    assert screen.toc.count() >= 5
+    assert "HerpetoID" in screen.browser.toPlainText()  # first chapter rendered
