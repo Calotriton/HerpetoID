@@ -62,11 +62,12 @@ dev = [
 [project.scripts]
 herpetoid = "herpetoid.__main__:main"
 
-# First-party plugins are registered here in Phase 2 (ORB algorithm + Calotriton asper module):
-#   [project.entry-points."herpetoid.algorithms"]
-#   orb = "herpetoid.plugins.algorithms.orb:OrbAlgorithm"
-#   [project.entry-points."herpetoid.species_modules"]
-#   calotriton_asper = "herpetoid.plugins.species.calotriton_asper:CalotritonAsperModule"
+# First-party plugins, discovered by the registry via these entry-point groups.
+[project.entry-points."herpetoid.algorithms"]
+orb = "herpetoid.plugins.algorithms.orb:OrbAlgorithm"
+
+[project.entry-points."herpetoid.species_modules"]
+calotriton_asper = "herpetoid.plugins.species.calotriton_asper:CalotritonAsperModule"
 
 [tool.setuptools]
 package-dir = { "" = "src" }

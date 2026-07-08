@@ -89,8 +89,9 @@ class AlgorithmContract:
         raise NotImplementedError
 
     def _sample(self) -> Sample:
+        # 192x192 so keypoint algorithms (which ignore image borders) have room to detect features.
         rng = np.random.default_rng(1)
-        return Sample(image=rng.integers(0, 256, size=(64, 64), dtype=np.uint8))
+        return Sample(image=rng.integers(0, 256, size=(192, 192), dtype=np.uint8))
 
     def test_descriptor_wellformed(self) -> None:
         descriptor = type(self.make_algorithm()).descriptor()
