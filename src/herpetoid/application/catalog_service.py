@@ -11,7 +11,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
-from herpetoid.domain import Image, Individual, Observation, PluginRef, Species
+from herpetoid.domain import Image, Individual, Observation, PluginRef, Sex, Species
 
 from .project_service import ProjectContext
 
@@ -122,3 +122,41 @@ class CatalogService:
 
         with self._project.database.session() as session:
             return ImageRepository(session).list_all()
+
+    # -- individuals & linking ------------------------------------------------------------------
+    def get_observation(self, observation_id: int) -> Observation | None:
+        from herpetoid.infrastructure.db.repositories import ObservationRepository
+
+        with self._project.database.session() as session:
+            return ObservationRepository(session).get(observation_id)
+
+    def get_species(self, species_id: int) -> Species | None:
+        from herpetoid.infrastructure.db.repositories import SpeciesRepository
+
+        with self._project.database.session() as session:
+            return SpeciesRepository(session).get(species_id)
+
+    def observations_for_species(self, species_id: int) -> list[Observation]:
+        from herpetoid.infrastructure.db.repositories import ObservationRepository
+
+        with self._project.database.session() as session:
+            return ObservationRepository(session).list_for_species(species_id)
+
+    def create_individual(
+        self, species_id: int, *, code: str = "", sex: Sex = Sex.UNDETERMINED, notes: str = ""
+    ) -> Individual:
+        from herpetoid.infrastructure.db.repositories import IndividualRepository
+
+        with self._project.database.session() as session:
+            repository = IndividualRepository(session)
+            if not code:
+                code = f"IND-{len(repository.list_for_species(species_id)) + 1:03d}"
+            return repository.add(
+                Individual(species_id=species_id, code=code, sex=sex, notes=notes)
+            )
+
+    def link_observation(self, observation_id: int, individual_id: int | None) -> None:
+        from herpetoid.infrastructure.db.repositories import ObservationRepository
+
+        with self._project.database.session() as session:
+            ObservationRepository(session).link_to_individual(observation_id, individual_id)

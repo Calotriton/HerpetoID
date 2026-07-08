@@ -317,5 +317,13 @@ class ObservationRepository:
         stmt = select(ObservationModel).order_by(ObservationModel.observed_at)
         return [_observation_to_entity(model) for model in self._session.scalars(stmt)]
 
+    def list_for_species(self, species_id: int) -> list[Observation]:
+        stmt = (
+            select(ObservationModel)
+            .where(ObservationModel.species_id == species_id)
+            .order_by(ObservationModel.id)
+        )
+        return [_observation_to_entity(model) for model in self._session.scalars(stmt)]
+
     def count(self) -> int:
         return int(self._session.scalar(select(func.count()).select_from(ObservationModel)) or 0)
