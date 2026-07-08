@@ -11,16 +11,17 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from herpetoid.application.registry import PluginRegistry
-
 from .screens.home import HomeScreen
 from .screens.placeholder import PlaceholderScreen
 from .screens.plugins import PluginManagerScreen
+from .screens.projects import ProjectManagerScreen
+from .state import AppState
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, registry: PluginRegistry) -> None:
+    def __init__(self, state: AppState) -> None:
         super().__init__()
+        self._state = state
         self.setWindowTitle("HerpetoID")
         self.resize(1100, 720)
 
@@ -30,14 +31,14 @@ class MainWindow(QMainWindow):
         self._stack = QStackedWidget()
 
         self._add_screen("Home", HomeScreen())
-        self._add_screen("Projects", PlaceholderScreen("Project Manager"))
+        self._add_screen("Projects", ProjectManagerScreen(state))
         self._add_screen("Import", PlaceholderScreen("Image Import"))
         self._add_screen("Observations", PlaceholderScreen("Observation Editor"))
         self._add_screen("Individuals", PlaceholderScreen("Individual Browser"))
         self._add_screen("Candidates", PlaceholderScreen("Candidate Ranking"))
         self._add_screen("Comparison", PlaceholderScreen("Comparison Window"))
         self._add_screen("Statistics", PlaceholderScreen("Statistics"))
-        self._add_screen("Plugins", PluginManagerScreen(registry))
+        self._add_screen("Plugins", PluginManagerScreen(state.registry))
         self._add_screen("Settings", PlaceholderScreen("Settings"))
         self._add_screen("Help", PlaceholderScreen("Help"))
 
@@ -51,12 +52,22 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._stack, 1)
         self.setCentralWidget(central)
 
+        state.project_changed.connect(self._on_project_changed)
         self.statusBar().showMessage("Ready")
         self._nav.setCurrentRow(0)
 
     def _add_screen(self, name: str, widget: QWidget) -> None:
         self._nav.addItem(QListWidgetItem(name))
         self._stack.addWidget(widget)
+
+    def _on_project_changed(self) -> None:
+        project = self._state.project
+        if project is not None:
+            self.setWindowTitle(f"HerpetoID — {project.project.name}")
+            self.statusBar().showMessage(f"Project: {project.project.name}")
+        else:
+            self.setWindowTitle("HerpetoID")
+            self.statusBar().showMessage("Ready")
 
     def screen_names(self) -> list[str]:
         return [self._nav.item(i).text() for i in range(self._nav.count())]

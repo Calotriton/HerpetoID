@@ -1,9 +1,11 @@
-"""Application entry point: build the QApplication, apply theme, discover plugins, show the window."""
+"""Application entry point: build the QApplication, wire state, apply theme, show the window."""
 
 from __future__ import annotations
 
 from PySide6.QtWidgets import QApplication
 
+from herpetoid import __version__
+from herpetoid.application.project_service import ProjectService
 from herpetoid.application.registry import PluginRegistry
 from herpetoid.application.settings import SettingsService
 from herpetoid.infrastructure.logging_setup import configure_logging
@@ -12,6 +14,7 @@ from herpetoid.infrastructure.plugin_discovery import discover_entry_points, dis
 from herpetoid.infrastructure.settings_store import JsonSettingsStore
 
 from .main_window import MainWindow
+from .state import AppState
 from .theme import ThemeManager
 
 
@@ -25,14 +28,23 @@ def build_registry() -> PluginRegistry:
     return registry
 
 
+def build_app_state() -> AppState:
+    settings = SettingsService(JsonSettingsStore(app_paths().settings_file))
+    return AppState(
+        registry=build_registry(),
+        project_service=ProjectService(app_version=__version__),
+        settings=settings,
+    )
+
+
 def run(argv: list[str] | None = None) -> int:
     existing = QApplication.instance()
     app = existing if isinstance(existing, QApplication) else QApplication(argv or [])
-    paths = app_paths()
-    configure_logging(paths.log_dir)
-    settings = SettingsService(JsonSettingsStore(paths.settings_file))
-    ThemeManager(app).apply(settings.settings.theme)
+    configure_logging(app_paths().log_dir)
 
-    window = MainWindow(build_registry())
+    state = build_app_state()
+    ThemeManager(app).apply(state.settings.settings.theme)
+
+    window = MainWindow(state)
     window.show()
     return app.exec()
