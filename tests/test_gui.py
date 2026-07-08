@@ -200,3 +200,70 @@ def test_observations_screen_lists_and_shows_image(
     assert screen.viewer.has_image()  # first row auto-selected, image shown without a click
     screen.table.selectRow(0)
     assert screen.viewer.has_image()
+
+
+def test_candidate_ranking_identify_and_confirm(app_state: AppState, tmp_path: Path, qtbot) -> None:
+    import cv2
+    from PIL import Image as PilImage
+
+    from herpetoid.domain import PluginRef
+    from herpetoid.gui.screens.candidate_ranking import CandidateRankingScreen
+
+    def spots(seed: int, size: int = 256, count: int = 45) -> np.ndarray:
+        rng = np.random.default_rng(seed)
+        img = np.full((size, size), 255, np.uint8)
+        for _ in range(count):
+            cx, cy = rng.integers(20, size - 20, size=2)
+            ax, ay = rng.integers(5, 15, size=2)
+            cv2.ellipse(
+                img,
+                (int(cx), int(cy)),
+                (int(ax), int(ay)),
+                int(rng.integers(0, 180)),
+                0,
+                360,
+                0,
+                -1,
+            )
+        return img
+
+    def rotate(img: np.ndarray, deg: float) -> np.ndarray:
+        h, w = img.shape[:2]
+        return cv2.warpAffine(
+            img, cv2.getRotationMatrix2D((w / 2, h / 2), deg, 1.0), (w, h), borderValue=255
+        )
+
+    def save(path: Path, gray: np.ndarray) -> None:
+        PilImage.fromarray(np.stack([gray, gray, gray], axis=-1)).save(path)
+
+    cv2.setRNGSeed(7)
+    app_state.create_project(tmp_path / "proj", "P")
+    catalog = app_state.catalog
+    assert catalog is not None
+    species = catalog.ensure_species(
+        "Calotriton asper", module=PluginRef("calotriton_asper", "1.0")
+    )
+    assert species.id is not None
+    base = spots(1)
+    pa, pb, pc = tmp_path / "a.png", tmp_path / "b.png", tmp_path / "c.png"
+    save(pa, base)
+    save(pb, rotate(base, 10))
+    save(pc, spots(999))
+    obs_a = catalog.import_observation(species.id, [pa])
+    obs_b = catalog.import_observation(species.id, [pb])
+    catalog.import_observation(species.id, [pc])
+
+    screen = CandidateRankingScreen(app_state)
+    qtbot.addWidget(screen)
+    screen.query_combo.setCurrentIndex(screen.query_combo.findData(obs_a.id))
+    screen.algorithm_combo.setCurrentIndex(screen.algorithm_combo.findData("orb"))
+    screen.identify()
+
+    assert screen._candidates
+    assert screen._candidates[0].observation.id == obs_b.id  # same individual (rotated) first
+    assert screen.query_viewer.has_image()
+    screen.table.selectRow(0)
+    assert screen.candidate_viewer.has_image()
+
+    screen.confirm_same()  # links query + candidate to one (new) individual
+    assert catalog.individual_count() == 1

@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .screens.candidate_ranking import CandidateRankingScreen
 from .screens.home import HomeScreen
 from .screens.import_images import ImageImportScreen
 from .screens.observations import ObservationsScreen
@@ -39,7 +40,7 @@ class MainWindow(QMainWindow):
         self._add_screen("Import", ImageImportScreen(state))
         self._add_screen("Observations", ObservationsScreen(state))
         self._add_screen("Individuals", PlaceholderScreen("Individual Browser"))
-        self._add_screen("Candidates", PlaceholderScreen("Candidate Ranking"))
+        self._add_screen("Candidates", CandidateRankingScreen(state))
         self._add_screen("Comparison", PlaceholderScreen("Comparison Window"))
         self._add_screen("Statistics", StatisticsScreen(state))
         self._add_screen("Plugins", PluginManagerScreen(state.registry))
