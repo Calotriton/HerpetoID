@@ -1,8 +1,11 @@
-"""Statistics screen: project-level counts + field-driven statistics from the StatisticsService."""
+"""Statistics screen: project counts + field-driven statistics, plus data/PDF exports."""
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtWidgets import (
+    QFileDialog,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -15,7 +18,17 @@ from PySide6.QtWidgets import (
 
 from herpetoid.api import DerivedStatistic
 from herpetoid.application.catalog_service import CatalogService
+from herpetoid.application.export import ExportData
 from herpetoid.gui.state import AppState
+from herpetoid.infrastructure.pdf_export import PdfExporter
+
+_EXPORTS = (("CSV", "csv"), ("Excel", "xlsx"), ("JSON", "json"), ("PDF", "pdf"))
+_FILTERS = {
+    "csv": "CSV (*.csv)",
+    "xlsx": "Excel (*.xlsx)",
+    "json": "JSON (*.json)",
+    "pdf": "PDF (*.pdf)",
+}
 
 
 class StatisticsScreen(QWidget):
@@ -32,6 +45,10 @@ class StatisticsScreen(QWidget):
         refresh_button = QPushButton("Refresh")
         refresh_button.clicked.connect(self._refresh)
         header.addWidget(refresh_button)
+        for label, fmt in _EXPORTS:
+            button = QPushButton(f"Export {label}")
+            button.clicked.connect(lambda _checked=False, f=fmt: self._export(f))
+            header.addWidget(button)
         layout.addLayout(header)
 
         self.summary_label = QLabel()
@@ -106,3 +123,45 @@ class StatisticsScreen(QWidget):
         for row_index, (name, value) in enumerate(rows):
             self.table.setItem(row_index, 0, QTableWidgetItem(name))
             self.table.setItem(row_index, 1, QTableWidgetItem(value))
+
+    # -- exports --------------------------------------------------------------------------------
+    def build_export_data(self) -> ExportData | None:
+        catalog = self._state.catalog
+        project = self._state.project
+        if catalog is None or project is None:
+            return None
+        return ExportData(
+            project=project.project,
+            species=catalog.list_species(),
+            individuals=catalog.list_individuals(),
+            observations=catalog.list_observations(),
+            images=catalog.list_images(),
+        )
+
+    def export_to(self, format_id: str, destination: Path) -> None:
+        data = self.build_export_data()
+        if data is None:
+            return
+        if format_id == "pdf":
+            project = self._state.project
+            PdfExporter(
+                bundle_root=project.path if project else None,
+                title=f"HerpetoID - {data.project.name}",
+            ).export(data, destination)
+        else:
+            self._state.export.export(format_id, data, destination)
+
+    def _export(self, format_id: str) -> None:
+        if self._state.catalog is None:
+            return
+        destination, _ = QFileDialog.getSaveFileName(
+            self, f"Export {format_id.upper()}", f"export.{format_id}", _FILTERS[format_id]
+        )
+        if not destination:
+            return
+        try:
+            self.export_to(format_id, Path(destination))
+        except Exception as exc:  # surface export errors without crashing
+            self.summary_label.setText(f"Export failed: {exc}")
+            return
+        self.summary_label.setText(f"Exported to {destination}")

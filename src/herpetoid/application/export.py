@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from herpetoid.api import FieldDefinition
-from herpetoid.domain import Individual, Observation, Project, Species
+from herpetoid.domain import Image, Individual, Observation, Project, Species
 
 _BASE_COLUMNS = [
     "observation_id",
@@ -36,6 +36,7 @@ class ExportData:
     individuals: Sequence[Individual] = ()
     observations: Sequence[Observation] = ()
     measurement_fields: Sequence[FieldDefinition] = ()
+    images: Sequence[Image] = ()  # all images; used by the PDF exporter to embed thumbnails
 
 
 class Exporter(Protocol):

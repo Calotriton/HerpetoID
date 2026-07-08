@@ -304,3 +304,33 @@ def test_help_screen_renders_manual(qtbot) -> None:
     qtbot.addWidget(screen)
     assert screen.toc.count() >= 5
     assert "HerpetoID" in screen.browser.toPlainText()  # first chapter rendered
+
+
+def test_statistics_screen_exports(app_state: AppState, tmp_path: Path, qtbot) -> None:
+    from PIL import Image as PilImage
+
+    from herpetoid.domain import PluginRef
+    from herpetoid.gui.screens.statistics import StatisticsScreen
+
+    app_state.create_project(tmp_path / "proj", "P")
+    catalog = app_state.catalog
+    assert catalog is not None
+    species = catalog.ensure_species(
+        "Calotriton asper", module=PluginRef("calotriton_asper", "1.0")
+    )
+    assert species.id is not None
+    image = tmp_path / "i.png"
+    PilImage.fromarray(np.full((16, 16, 3), 80, np.uint8)).save(image)
+    catalog.import_observation(species.id, [image], observer="AL", measurements={"svl": 40.0})
+
+    screen = StatisticsScreen(app_state)
+    qtbot.addWidget(screen)
+
+    csv_dest = tmp_path / "out.csv"
+    screen.export_to("csv", csv_dest)
+    assert csv_dest.exists()
+    assert "observation_id" in csv_dest.read_text(encoding="utf-8")
+
+    pdf_dest = tmp_path / "out.pdf"
+    screen.export_to("pdf", pdf_dest)
+    assert pdf_dest.read_bytes()[:4] == b"%PDF"
