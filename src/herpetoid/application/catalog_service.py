@@ -110,3 +110,9 @@ class CatalogService:
 
         with self._project.database.session() as session:
             return IndividualRepository(session).list_all()
+
+    def images_for(self, observation_id: int) -> list[Image]:
+        from herpetoid.infrastructure.db.repositories import ImageRepository
+
+        with self._project.database.session() as session:
+            return ImageRepository(session).list_for_observation(observation_id)

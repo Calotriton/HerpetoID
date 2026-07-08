@@ -160,3 +160,41 @@ def test_statistics_screen(app_state: AppState, tmp_path: Path, qtbot) -> None:
     names = [screen.table.item(r, 0).text() for r in range(screen.table.rowCount())]
     assert "mean_svl" in names
     assert "sex_ratio" in names
+
+
+def test_settings_screen_changes_theme(app_state: AppState, qtbot) -> None:
+    from herpetoid.gui.screens.settings import SettingsScreen
+
+    screen = SettingsScreen(app_state)
+    qtbot.addWidget(screen)
+    screen.theme_combo.setCurrentText("dark")
+    assert app_state.settings.settings.theme == "dark"
+    screen.top_k_spin.setValue(7)
+    assert app_state.settings.settings.default_top_k == 7
+
+
+def test_observations_screen_lists_and_shows_image(
+    app_state: AppState, tmp_path: Path, qtbot
+) -> None:
+    from PIL import Image as PilImage
+
+    from herpetoid.domain import PluginRef
+    from herpetoid.gui.screens.observations import ObservationsScreen
+
+    app_state.create_project(tmp_path / "proj", "P")
+    catalog = app_state.catalog
+    assert catalog is not None
+    species = catalog.ensure_species(
+        "Calotriton asper", module=PluginRef("calotriton_asper", "1.0")
+    )
+    assert species.id is not None
+    image = tmp_path / "i.png"
+    PilImage.fromarray(np.full((16, 16, 3), 120, np.uint8)).save(image)
+    catalog.import_observation(species.id, [image], observer="AL", measurements={"svl": 40.0})
+
+    screen = ObservationsScreen(app_state)
+    qtbot.addWidget(screen)
+    assert screen.table.rowCount() == 1
+    assert screen.table.item(0, 2).text() == "AL"  # observer column
+    screen.table.selectRow(0)
+    assert screen.viewer.has_image()

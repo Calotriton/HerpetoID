@@ -13,9 +13,11 @@ from PySide6.QtWidgets import (
 
 from .screens.home import HomeScreen
 from .screens.import_images import ImageImportScreen
+from .screens.observations import ObservationsScreen
 from .screens.placeholder import PlaceholderScreen
 from .screens.plugins import PluginManagerScreen
 from .screens.projects import ProjectManagerScreen
+from .screens.settings import SettingsScreen
 from .screens.statistics import StatisticsScreen
 from .state import AppState
 
@@ -35,13 +37,13 @@ class MainWindow(QMainWindow):
         self._add_screen("Home", HomeScreen())
         self._add_screen("Projects", ProjectManagerScreen(state))
         self._add_screen("Import", ImageImportScreen(state))
-        self._add_screen("Observations", PlaceholderScreen("Observation Editor"))
+        self._add_screen("Observations", ObservationsScreen(state))
         self._add_screen("Individuals", PlaceholderScreen("Individual Browser"))
         self._add_screen("Candidates", PlaceholderScreen("Candidate Ranking"))
         self._add_screen("Comparison", PlaceholderScreen("Comparison Window"))
         self._add_screen("Statistics", StatisticsScreen(state))
         self._add_screen("Plugins", PluginManagerScreen(state.registry))
-        self._add_screen("Settings", PlaceholderScreen("Settings"))
+        self._add_screen("Settings", SettingsScreen(state))
         self._add_screen("Help", PlaceholderScreen("Help"))
 
         self._nav.currentRowChanged.connect(self._stack.setCurrentIndex)
