@@ -267,3 +267,31 @@ def test_candidate_ranking_identify_and_confirm(app_state: AppState, tmp_path: P
 
     screen.confirm_same()  # links query + candidate to one (new) individual
     assert catalog.individual_count() == 1
+
+
+def test_individual_browser(app_state: AppState, tmp_path: Path, qtbot) -> None:
+    from PIL import Image as PilImage
+
+    from herpetoid.domain import PluginRef
+    from herpetoid.gui.screens.individuals import IndividualBrowserScreen
+
+    app_state.create_project(tmp_path / "proj", "P")
+    catalog = app_state.catalog
+    assert catalog is not None
+    species = catalog.ensure_species(
+        "Calotriton asper", module=PluginRef("calotriton_asper", "1.0")
+    )
+    assert species.id is not None
+    image = tmp_path / "i.png"
+    PilImage.fromarray(np.full((16, 16, 3), 100, np.uint8)).save(image)
+    observation = catalog.import_observation(species.id, [image])
+    individual = catalog.create_individual(species.id, code="CA-001")
+    assert observation.id is not None
+    catalog.link_observation(observation.id, individual.id)
+
+    screen = IndividualBrowserScreen(app_state)
+    qtbot.addWidget(screen)
+    assert screen.table.rowCount() == 1
+    assert screen.table.item(0, 0).text() == "CA-001"
+    assert screen.table.item(0, 3).text() == "1"  # one linked observation
+    assert screen.viewer.has_image()

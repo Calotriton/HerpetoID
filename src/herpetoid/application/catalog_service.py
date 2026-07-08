@@ -142,6 +142,12 @@ class CatalogService:
         with self._project.database.session() as session:
             return ObservationRepository(session).list_for_species(species_id)
 
+    def observations_for_individual(self, individual_id: int) -> list[Observation]:
+        from herpetoid.infrastructure.db.repositories import ObservationRepository
+
+        with self._project.database.session() as session:
+            return ObservationRepository(session).list_for_individual(individual_id)
+
     def create_individual(
         self, species_id: int, *, code: str = "", sex: Sex = Sex.UNDETERMINED, notes: str = ""
     ) -> Individual:

@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 from .screens.candidate_ranking import CandidateRankingScreen
 from .screens.home import HomeScreen
 from .screens.import_images import ImageImportScreen
+from .screens.individuals import IndividualBrowserScreen
 from .screens.observations import ObservationsScreen
 from .screens.placeholder import PlaceholderScreen
 from .screens.plugins import PluginManagerScreen
@@ -39,7 +40,7 @@ class MainWindow(QMainWindow):
         self._add_screen("Projects", ProjectManagerScreen(state))
         self._add_screen("Import", ImageImportScreen(state))
         self._add_screen("Observations", ObservationsScreen(state))
-        self._add_screen("Individuals", PlaceholderScreen("Individual Browser"))
+        self._add_screen("Individuals", IndividualBrowserScreen(state))
         self._add_screen("Candidates", CandidateRankingScreen(state))
         self._add_screen("Comparison", PlaceholderScreen("Comparison Window"))
         self._add_screen("Statistics", StatisticsScreen(state))
