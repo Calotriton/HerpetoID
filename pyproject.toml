@@ -109,6 +109,12 @@ warn_redundant_casts = true
 module = ["cv2.*", "skimage.*", "scipy.*", "reportlab.*", "openpyxl.*", "matplotlib.*"]
 ignore_missing_imports = true
 
+# The Qt-free core stays fully strict; the GUI glue layer relaxes the checks that fight Qt's stubs.
+[[tool.mypy.overrides]]
+module = "herpetoid.gui.*"
+warn_return_any = false
+disallow_untyped_calls = false
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q --strict-markers"
