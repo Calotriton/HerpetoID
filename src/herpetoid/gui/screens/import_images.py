@@ -77,6 +77,7 @@ class ImageImportScreen(QWidget):
         self._populate_gallery()
 
     def _populate_species(self) -> None:
+        current = self.species_combo.currentText()
         self.species_combo.clear()
         self._module_by_species.clear()
         for record in self._state.registry.modules(enabled_only=True):
@@ -86,6 +87,10 @@ class ImageImportScreen(QWidget):
                         record.descriptor.module_id, record.descriptor.version
                     )
                     self.species_combo.addItem(name)
+        if current:  # keep the user's selection across refreshes
+            index = self.species_combo.findText(current)
+            if index >= 0:
+                self.species_combo.setCurrentIndex(index)
 
     def _update_status(self) -> None:
         catalog = self._state.catalog
@@ -134,6 +139,6 @@ class ImageImportScreen(QWidget):
         observer = self.observer_edit.text().strip()
         for path in paths:
             catalog.import_observation(species.id, [path], observer=observer)
-        self._update_status()
-        self._populate_gallery()
+        # Notify every screen (this one included) so the new observations appear everywhere.
+        self._state.project_changed.emit()
         return len(paths)

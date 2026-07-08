@@ -119,6 +119,32 @@ def test_image_import_creates_observation(app_state: AppState, tmp_path: Path, q
     assert screen.gallery.count() == 1  # imported image appears as a thumbnail
 
 
+def test_import_refreshes_other_screens(app_state: AppState, tmp_path: Path, qtbot) -> None:
+    """Screens created before importing (as in the real window) must update after an import."""
+    from PIL import Image as PilImage
+
+    from herpetoid.gui.screens.candidate_ranking import CandidateRankingScreen
+    from herpetoid.gui.screens.import_images import ImageImportScreen
+    from herpetoid.gui.screens.observations import ObservationsScreen
+
+    app_state.create_project(tmp_path / "proj", "P")
+    observations = ObservationsScreen(app_state)
+    candidates = CandidateRankingScreen(app_state)
+    importer = ImageImportScreen(app_state)
+    for widget in (observations, candidates, importer):
+        qtbot.addWidget(widget)
+
+    assert observations.table.rowCount() == 0  # empty before import
+    assert candidates.query_combo.count() == 0
+
+    source = tmp_path / "a.png"
+    PilImage.fromarray(np.zeros((32, 32, 3), np.uint8)).save(source)
+    importer.import_files([source])
+
+    assert observations.table.rowCount() == 1  # refreshed via project_changed
+    assert candidates.query_combo.count() == 1  # a query is now selectable -> identification can run
+
+
 def test_dynamic_form_roundtrip_and_validation(qtbot) -> None:
     from herpetoid.gui.widgets.dynamic_form import DynamicForm
     from herpetoid.plugins.species.calotriton_asper import CalotritonAsperModule
