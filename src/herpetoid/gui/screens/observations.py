@@ -63,26 +63,32 @@ class ObservationsScreen(QWidget):
         layout.setContentsMargins(8, 8, 8, 8)
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
+        # --- Left: a narrow list of observations ---------------------------------------------
+        table_panel = QWidget()
+        table_layout = QVBoxLayout(table_panel)
+        table_layout.setContentsMargins(0, 0, 0, 0)
+        table_layout.addWidget(QLabel("<b>Observations</b>"))
         self.table = QTableWidget(0, len(_COLUMNS))
         self.table.setHorizontalHeaderLabels(_COLUMNS)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        table_header = self.table.horizontalHeader()
+        table_header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)  # ID
+        table_header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)  # Species
+        table_header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)  # Observer
+        table_header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)  # Individual
         self.table.verticalHeader().setVisible(False)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.table.itemSelectionChanged.connect(self._on_select)
-        splitter.addWidget(self.table)
+        table_layout.addWidget(self.table, 1)
+        table_panel.setMinimumWidth(180)
+        table_panel.setMaximumWidth(280)
+        splitter.addWidget(table_panel)
 
-        right = QWidget()
-        right_layout = QVBoxLayout(right)
-        right_layout.setContentsMargins(6, 0, 0, 0)
-
-        # A vertical splitter lets the user drag the image window larger for precise point placement.
-        editor_splitter = QSplitter(Qt.Orientation.Vertical)
-
+        # --- Centre: the image + ROI tools (this pane gets the space) ------------------------
         image_area = QWidget()
         image_layout = QVBoxLayout(image_area)
-        image_layout.setContentsMargins(0, 0, 0, 0)
+        image_layout.setContentsMargins(6, 0, 6, 0)
 
         self.viewer = RoiImageViewer()
         self.viewer.roi_changed.connect(self._update_preview)
@@ -90,7 +96,7 @@ class ObservationsScreen(QWidget):
 
         self.guidance_label = QLabel()
         self.guidance_label.setWordWrap(True)
-        self.guidance_label.setStyleSheet("color: gray;")
+        self.guidance_label.setStyleSheet("color: palette(mid);")
         image_layout.addWidget(self.guidance_label)
 
         controls_and_preview = QHBoxLayout()
@@ -134,21 +140,29 @@ class ObservationsScreen(QWidget):
         preview_layout = QVBoxLayout(preview_group)
         preview_layout.setContentsMargins(6, 6, 6, 6)
         self.preview_label = QLabel("No ROI")
-        self.preview_label.setFixedSize(180, 140)
+        self.preview_label.setFixedSize(200, 150)
         self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.preview_label.setFrameShape(QFrame.Shape.StyledPanel)
         preview_layout.addWidget(self.preview_label)
         controls_and_preview.addWidget(preview_group)
         image_layout.addLayout(controls_and_preview)
-        editor_splitter.addWidget(image_area)
+        splitter.addWidget(image_area)
+
+        # --- Right: a compact data-entry column ----------------------------------------------
+        form_panel = QWidget()
+        form_panel_layout = QVBoxLayout(form_panel)
+        form_panel_layout.setContentsMargins(0, 0, 0, 0)
+        form_panel_layout.addWidget(QLabel("<b>Observation details</b>"))
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         form_host = QWidget()
         self._form_layout = QVBoxLayout(form_host)
+        self._form_layout.setContentsMargins(0, 0, 0, 0)
 
         universal = QWidget()
         universal_form = QFormLayout(universal)
+        universal_form.setContentsMargins(0, 0, 0, 0)
         self.observer_edit = QLineEdit()
         universal_form.addRow("Observer", self.observer_edit)
         self.date_edit = QDateEdit()
@@ -174,26 +188,25 @@ class ObservationsScreen(QWidget):
         self._form_layout.addWidget(self._form_container)
         self._form_layout.addStretch(1)
         scroll.setWidget(form_host)
-        editor_splitter.addWidget(scroll)
-        editor_splitter.setStretchFactor(0, 1)
-        editor_splitter.setStretchFactor(1, 0)
-        editor_splitter.setSizes([620, 260])
-        right_layout.addWidget(editor_splitter, 1)
+        form_panel_layout.addWidget(scroll, 1)
 
         bottom = QHBoxLayout()
         self.status_label = QLabel()
-        bottom.addWidget(self.status_label)
-        bottom.addStretch(1)
+        self.status_label.setWordWrap(True)
+        bottom.addWidget(self.status_label, 1)
         self.save_button = QPushButton("Save observation")
         self.save_button.setObjectName("primary")
         self.save_button.clicked.connect(self.save)
         bottom.addWidget(self.save_button)
-        right_layout.addLayout(bottom)
+        form_panel_layout.addLayout(bottom)
+        form_panel.setMinimumWidth(260)
+        form_panel.setMaximumWidth(380)
+        splitter.addWidget(form_panel)
 
-        splitter.addWidget(right)
-        splitter.setStretchFactor(0, 0)
-        splitter.setStretchFactor(1, 1)
-        splitter.setSizes([300, 980])
+        splitter.setStretchFactor(0, 0)  # table: fixed-ish
+        splitter.setStretchFactor(1, 1)  # image: takes all extra space
+        splitter.setStretchFactor(2, 0)  # form: fixed-ish
+        splitter.setSizes([220, 780, 320])
         layout.addWidget(splitter)
 
         self._set_editing_enabled(False)

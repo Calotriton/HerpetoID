@@ -453,6 +453,25 @@ def test_build_match_composite_dimensions() -> None:
     assert composite.shape[1] == 30 + 24 + 20  # left + gap + right
 
 
+def test_build_match_composite_overlay_options() -> None:
+    from herpetoid.gui.screens.comparison import build_match_composite
+
+    left = np.full((60, 50, 3), 200, np.uint8)
+    right = np.full((60, 50, 3), 200, np.uint8)
+    corr = np.array([[5, 5, 6, 6], [10, 10, 11, 11], [20, 20, 21, 21]], float)
+
+    plain = build_match_composite(left, right, corr, show_lines=False, show_points=False)
+    drawn = build_match_composite(left, right, corr)
+    # with an overlay the image differs from the plain side-by-side
+    assert not np.array_equal(plain, drawn)
+    # hiding everything, zero opacity, and zero matches all fall back to the plain composite
+    assert np.array_equal(plain, build_match_composite(left, right, corr, opacity=0.0))
+    assert np.array_equal(plain, build_match_composite(left, right, corr, max_matches=0))
+    # limiting the count draws less than showing all
+    one = build_match_composite(left, right, corr, max_matches=1)
+    assert (one != plain).sum() < (drawn != plain).sum()
+
+
 def test_individual_browser(app_state: AppState, tmp_path: Path, qtbot) -> None:
     from PIL import Image as PilImage
 
