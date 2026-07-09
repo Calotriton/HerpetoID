@@ -162,6 +162,44 @@ class CatalogService:
                 Individual(species_id=species_id, code=code, sex=sex, notes=notes)
             )
 
+    def get_individual(self, individual_id: int) -> Individual | None:
+        from herpetoid.infrastructure.db.repositories import IndividualRepository
+
+        with self._project.database.session() as session:
+            return IndividualRepository(session).get(individual_id)
+
+    def update_individual(self, individual: Individual) -> None:
+        from herpetoid.infrastructure.db.repositories import IndividualRepository
+
+        with self._project.database.session() as session:
+            IndividualRepository(session).update(individual)
+
+    def find_individual_by_code(self, species_id: int, code: str) -> Individual | None:
+        from herpetoid.infrastructure.db.repositories import IndividualRepository
+
+        with self._project.database.session() as session:
+            return IndividualRepository(session).get_by_code(species_id, code)
+
+    def has_roi(self, observation_id: int) -> bool:
+        """True if the observation's first image has a marked ROI."""
+        images = self.images_for(observation_id)
+        if not images or images[0].id is None:
+            return False
+        return self.get_image_roi(images[0].id) is not None
+
+    def comparable_observations(self) -> list[Observation]:
+        """Observations that can be *selected* for identification / comparison: those with a marked ROI.
+
+        A pattern region is the minimum needed to match. The observation need not be assigned to an
+        individual yet — that is exactly what the Candidates/Comparison screens help decide. (The
+        catalog side of a ranking still only counts individuals with an ROI as "previous captures".)
+        """
+        return [
+            observation
+            for observation in self.list_observations()
+            if observation.id is not None and self.has_roi(observation.id)
+        ]
+
     def link_observation(self, observation_id: int, individual_id: int | None) -> None:
         from herpetoid.infrastructure.db.repositories import ObservationRepository
 

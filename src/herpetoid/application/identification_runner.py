@@ -77,6 +77,9 @@ class IdentificationRunner:
         for observation in self._catalog.observations_for_species(query.species_id):
             if observation.id is None or observation.id == query.id:
                 continue
+            # Only compare against "previous captures": cataloged individuals with a marked ROI.
+            if observation.individual_id is None or not self._catalog.has_roi(observation.id):
+                continue
             image = self._first_image(observation.id)
             if image is None:
                 continue

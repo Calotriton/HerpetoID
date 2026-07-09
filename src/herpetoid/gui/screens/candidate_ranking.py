@@ -23,16 +23,23 @@ from PySide6.QtWidgets import (
 from herpetoid.application.identification_runner import Candidate, IdentificationRunner
 from herpetoid.gui.state import AppState
 from herpetoid.gui.widgets.image_viewer import ImageViewer
+from herpetoid.gui.widgets.info_table import (
+    InfoTable,
+    observation_info_rows,
+    species_field_definitions,
+)
 
 
-def _viewer_panel(title: str) -> tuple[QWidget, ImageViewer]:
+def _viewer_panel(title: str) -> tuple[QWidget, ImageViewer, InfoTable]:
     panel = QWidget()
     layout = QVBoxLayout(panel)
     layout.setContentsMargins(0, 0, 0, 0)
     layout.addWidget(QLabel(f"<b>{title}</b>"))
     viewer = ImageViewer()
-    layout.addWidget(viewer)
-    return panel, viewer
+    layout.addWidget(viewer, 3)
+    info = InfoTable()
+    layout.addWidget(info, 2)
+    return panel, viewer, info
 
 
 class CandidateRankingScreen(QWidget):
@@ -87,8 +94,8 @@ class CandidateRankingScreen(QWidget):
         comparison = QWidget()
         comparison_layout = QHBoxLayout(comparison)
         comparison_layout.setContentsMargins(0, 0, 0, 0)
-        query_panel, self.query_viewer = _viewer_panel("Query")
-        candidate_panel, self.candidate_viewer = _viewer_panel("Candidate")
+        query_panel, self.query_viewer, self.query_info = _viewer_panel("Query")
+        candidate_panel, self.candidate_viewer, self.candidate_info = _viewer_panel("Candidate")
         comparison_layout.addWidget(query_panel)
         comparison_layout.addWidget(candidate_panel)
         splitter.addWidget(comparison)
@@ -119,12 +126,22 @@ class CandidateRankingScreen(QWidget):
         self.table.setRowCount(0)
         self.query_viewer.clear()
         self.candidate_viewer.clear()
+        self.query_info.clear_rows()
+        self.candidate_info.clear_rows()
         self._populate_queries()
         self._populate_algorithms()
         has_project = self._state.project is not None
+        has_queries = self.query_combo.count() > 0
         for widget in (self.query_combo, self.algorithm_combo, self.identify_button):
-            widget.setEnabled(has_project)
-        self.status_label.setText("" if has_project else "Open a project first.")
+            widget.setEnabled(has_project and has_queries)
+        if not has_project:
+            self.status_label.setText("Open a project first.")
+        elif not has_queries:
+            self.status_label.setText(
+                "Nothing to identify yet — mark a ROI on an observation (Observations tab) first."
+            )
+        else:
+            self.status_label.setText("")
         self._update_action_buttons()
 
     def _populate_queries(self) -> None:
@@ -133,9 +150,13 @@ class CandidateRankingScreen(QWidget):
         if catalog is None:
             return
         self._species_names = {s.id: s.scientific_name for s in catalog.list_species()}
-        for obs in catalog.list_observations():
+        codes = {i.id: i.code for i in catalog.list_individuals()}
+        # Any observation with a marked ROI can be identified (assigned or not).
+        for obs in catalog.comparable_observations():
             species = self._species_names.get(obs.species_id, "")
-            self.query_combo.addItem(f"Obs {obs.id} · {species} · {obs.observer or '-'}", obs.id)
+            code = codes.get(obs.individual_id) if obs.individual_id else None
+            label = f"{code} · {species}" if code else f"Obs {obs.id} · {species} · unassigned"
+            self.query_combo.addItem(label, obs.id)
 
     def _populate_algorithms(self) -> None:
         self.algorithm_combo.clear()
@@ -158,6 +179,8 @@ class CandidateRankingScreen(QWidget):
             return
 
         self._show_image(self.query_viewer, self._query_observation_id)
+        self._show_observation_info(self.query_info, self._query_observation_id)
+        self.candidate_info.clear_rows()
         self.table.setRowCount(len(self._candidates))
         for row, candidate in enumerate(self._candidates):
             individual = candidate.individual.code if candidate.individual else "-"
@@ -182,7 +205,28 @@ class CandidateRankingScreen(QWidget):
         candidate = self._selected_candidate()
         if candidate is not None:
             self._show_rel_path(self.candidate_viewer, candidate.image.rel_path)
+            code = candidate.individual.code if candidate.individual is not None else None
+            self._show_observation_info(
+                self.candidate_info, candidate.observation.id, individual_code=code
+            )
         self._update_action_buttons()
+
+    def _show_observation_info(
+        self, info_table: InfoTable, observation_id: int | None, *, individual_code: str | None = None
+    ) -> None:
+        info_table.clear_rows()
+        catalog = self._state.catalog
+        if catalog is None or observation_id is None:
+            return
+        observation = catalog.get_observation(observation_id)
+        if observation is None:
+            return
+        code = individual_code
+        if code is None and observation.individual_id is not None:
+            individual = catalog.get_individual(observation.individual_id)
+            code = individual.code if individual is not None else None
+        fields = species_field_definitions(self._state, observation.species_id)
+        info_table.show_rows(observation_info_rows(observation, fields, individual_code=code))
 
     def _selected_candidate(self) -> Candidate | None:
         row = self.table.currentRow()

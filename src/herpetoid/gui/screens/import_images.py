@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QSize
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
@@ -25,6 +25,7 @@ from herpetoid.gui.state import AppState
 
 _IMAGE_FILTER = "Images (*.png *.jpg *.jpeg *.tif *.tiff *.bmp)"
 _THUMB = QSize(140, 140)
+_CELL = QSize(156, 178)  # thumbnail + a two-line caption
 
 
 class ImageImportScreen(QWidget):
@@ -58,6 +59,10 @@ class ImageImportScreen(QWidget):
         self.gallery = QListWidget()
         self.gallery.setViewMode(QListWidget.ViewMode.IconMode)
         self.gallery.setIconSize(_THUMB)
+        self.gallery.setGridSize(_CELL)  # bounds each cell so the caption can't dwarf the thumbnail
+        self.gallery.setUniformItemSizes(True)
+        self.gallery.setWordWrap(True)
+        self.gallery.setTextElideMode(Qt.TextElideMode.ElideRight)
         self.gallery.setResizeMode(QListWidget.ResizeMode.Adjust)
         self.gallery.setMovement(QListWidget.Movement.Static)
         self.gallery.setSpacing(8)
@@ -114,7 +119,11 @@ class ImageImportScreen(QWidget):
             pixmap = QPixmap(str(project.path / image.thumbnail_path))
             if pixmap.isNull():
                 continue
-            self.gallery.addItem(QListWidgetItem(QIcon(pixmap), image.original_filename))
+            item = QListWidgetItem(QIcon(pixmap), image.original_filename)
+            item.setToolTip(image.original_filename)  # full name on hover; the cell shows an elided one
+            item.setTextAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
+            item.setSizeHint(_CELL)
+            self.gallery.addItem(item)
 
     def _choose_files(self) -> None:
         files, _ = QFileDialog.getOpenFileNames(self, "Add images", "", _IMAGE_FILTER)

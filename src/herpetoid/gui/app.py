@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtWidgets import QApplication
 
 from herpetoid import __version__
@@ -37,6 +39,18 @@ def build_app_state() -> AppState:
     )
 
 
+def reopen_last_project(state: AppState) -> None:
+    """Reopen the most recent still-existing project so work continues where the user left off."""
+    for path in state.settings.settings.recent_projects:
+        bundle = Path(path)
+        if ProjectService.is_project_bundle(bundle):
+            try:
+                state.open_project(bundle)
+                return
+            except (FileNotFoundError, ValueError):
+                continue
+
+
 def run(argv: list[str] | None = None) -> int:
     existing = QApplication.instance()
     app = existing if isinstance(existing, QApplication) else QApplication(argv or [])
@@ -44,6 +58,7 @@ def run(argv: list[str] | None = None) -> int:
 
     state = build_app_state()
     ThemeManager(app).apply(state.settings.settings.theme)
+    reopen_last_project(state)  # autosave-friendly: pick up the last project on launch
 
     window = MainWindow(state)
     window.show()

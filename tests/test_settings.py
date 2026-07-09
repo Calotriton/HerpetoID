@@ -33,6 +33,15 @@ def test_settings_service_recent_projects(tmp_path: Path) -> None:
     assert reloaded.settings.recent_projects == ["p1", "p2"]
 
 
+def test_prune_recent_projects_drops_missing(tmp_path: Path) -> None:
+    service = SettingsService(JsonSettingsStore(tmp_path / "settings.json"))
+    service.add_recent_project("gone")
+    service.add_recent_project("kept")
+    kept = service.prune_recent_projects(lambda p: p == "kept")
+    assert kept == ["kept"]
+    assert service.settings.recent_projects == ["kept"]  # persisted
+
+
 def test_app_paths() -> None:
     paths = app_paths()
     assert "HerpetoID" in str(paths.settings_file)

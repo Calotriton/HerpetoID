@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from herpetoid.application.project_service import ProjectService
 from herpetoid.gui.state import AppState
 
 
@@ -70,7 +71,11 @@ class ProjectManagerScreen(QWidget):
         else:
             self.current_label.setText("No project open.")
         self.recent_list.clear()
-        for path in self._state.settings.settings.recent_projects:
+        # Only list bundles that still exist, so deleted/temporary folders don't linger in the list.
+        recent = self._state.settings.prune_recent_projects(
+            lambda p: ProjectService.is_project_bundle(Path(p))
+        )
+        for path in recent:
             self.recent_list.addItem(QListWidgetItem(path))
 
     def _new_project(self) -> None:

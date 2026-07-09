@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 from PIL import Image as PilImage
 
+from herpetoid.api import ROI
 from herpetoid.application.catalog_service import CatalogService
 from herpetoid.application.identification import IdentificationService
 from herpetoid.application.identification_runner import IdentificationRunner
@@ -60,8 +61,17 @@ def test_identification_runner_ranks_same_individual_first(tmp_path: Path) -> No
     _save(path_c, _spots(999))  # a different individual
     query = catalog.import_observation(species.id, [path_a], observer="A")
     same = catalog.import_observation(species.id, [path_b], observer="A")
-    catalog.import_observation(species.id, [path_c], observer="A")
+    different = catalog.import_observation(species.id, [path_c], observer="A")
     assert query.id is not None
+
+    # The catalog compares only against "previous captures": individuals with a marked ROI.
+    for observation in (same, different):
+        assert observation.id is not None
+        individual = catalog.create_individual(species.id)
+        catalog.link_observation(observation.id, individual.id)
+        image = catalog.images_for(observation.id)[0]
+        assert image.id is not None
+        catalog.set_image_roi(image.id, ROI.rectangle(10, 10, 236, 236))
 
     runner = IdentificationRunner(context, registry, IdentificationService())
     candidates = runner.identify(query.id, "orb", top_k=2)

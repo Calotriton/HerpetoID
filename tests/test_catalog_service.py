@@ -43,6 +43,32 @@ def test_catalog_service_species_and_import(tmp_path: Path) -> None:
     context.close()
 
 
+def test_observation_can_be_updated_repeatedly(tmp_path: Path) -> None:
+    """Re-saving an observation with measurements must not trip the metadata UNIQUE index."""
+    context = ProjectService().create(tmp_path / "bundle", "B")
+    catalog = CatalogService(context)
+    species = catalog.ensure_species("Calotriton asper", module=PluginRef("calotriton_asper", "1.0"))
+    assert species.id is not None
+    source = tmp_path / "newt.png"
+    _image(source)
+    observation = catalog.import_observation(species.id, [source], measurements={"svl": 40.0})
+    assert observation.id is not None
+
+    # Second save with the same field key previously raised sqlite3.IntegrityError.
+    observation.observer = "AL"
+    observation.measurements = {"svl": 41.0, "weight": 7.0}
+    catalog.update_observation(observation)
+    # Third save changing the values again.
+    observation.measurements = {"svl": 42.5}
+    catalog.update_observation(observation)
+
+    reloaded = catalog.get_observation(observation.id)
+    assert reloaded is not None
+    assert reloaded.observer == "AL"
+    assert reloaded.measurements == {"svl": 42.5}
+    context.close()
+
+
 def test_roi_persistence_and_observation_update(tmp_path: Path) -> None:
     from herpetoid.api import ROI, ROIKind
 

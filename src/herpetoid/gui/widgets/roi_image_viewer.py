@@ -15,8 +15,14 @@ from __future__ import annotations
 
 import numpy as np
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QMouseEvent, QPen, QPolygonF
-from PySide6.QtWidgets import QGraphicsItem, QGraphicsView, QWidget
+from PySide6.QtGui import QBrush, QColor, QMouseEvent, QPen, QPolygonF, QResizeEvent
+from PySide6.QtWidgets import (
+    QGraphicsItem,
+    QGraphicsView,
+    QHBoxLayout,
+    QToolButton,
+    QWidget,
+)
 
 from herpetoid.api import ROI, ROIKind
 
@@ -60,6 +66,39 @@ class RoiImageViewer(ImageViewer):
         self._building = False  # a polygon is being placed vertex by vertex
         self._cursor: QPointF | None = None  # live cursor while building a polygon
         self._items: list[QGraphicsItem] = []
+        self._overlay = self._build_overlay_controls()
+        self._overlay.hide()
+
+    def _build_overlay_controls(self) -> QWidget:
+        """A small floating toolbar (rotate / reset view) pinned to the image's top-right corner."""
+        overlay = QWidget(self.viewport())
+        overlay.setObjectName("viewOverlay")
+        overlay.setStyleSheet(
+            "#viewOverlay { background: rgba(20, 22, 25, 0.72); border-radius: 8px; }"
+            " QToolButton { color: white; border: none; padding: 4px 6px; font-size: 14px; }"
+            " QToolButton:hover { background: rgba(255, 255, 255, 0.18); border-radius: 5px; }"
+        )
+        row = QHBoxLayout(overlay)
+        row.setContentsMargins(4, 2, 4, 2)
+        row.setSpacing(2)
+        for text, tip, handler in (
+            ("⟲", "Rotate left (90° counter-clockwise)", lambda: self.rotate_view(-90)),
+            ("⟳", "Rotate right (90° clockwise)", lambda: self.rotate_view(90)),
+            ("⤢", "Reset view (fit and clear rotation)", self.reset_view),
+        ):
+            button = QToolButton(overlay)
+            button.setText(text)
+            button.setToolTip(tip)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            button.clicked.connect(handler)
+            row.addWidget(button)
+        overlay.adjustSize()
+        return overlay
+
+    def _reposition_overlay(self) -> None:
+        self._overlay.adjustSize()
+        margin = 8
+        self._overlay.move(self.viewport().width() - self._overlay.width() - margin, margin)
 
     # -- configuration ---------------------------------------------------------------------------
     def set_roi_kind(self, kind: ROIKind) -> None:
@@ -82,6 +121,9 @@ class RoiImageViewer(ImageViewer):
         self._reset_state()
         super().set_image(image)  # clears the scene (removing our ROI items)
         self._items = []
+        self._overlay.show()
+        self._overlay.raise_()
+        self._reposition_overlay()
         self.roi_changed.emit()
 
     def clear(self) -> None:
@@ -89,7 +131,12 @@ class RoiImageViewer(ImageViewer):
         self._reset_state()
         super().clear()
         self._items = []
+        self._overlay.hide()
         self.roi_changed.emit()
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        super().resizeEvent(event)
+        self._reposition_overlay()
 
     # -- view transforms (move / turn) -----------------------------------------------------------
     def rotate_view(self, degrees: float) -> None:

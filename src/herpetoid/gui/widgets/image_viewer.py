@@ -68,20 +68,29 @@ class ImageViewer(QGraphicsView):
         self._fit()
 
     def current_scale(self) -> float:
-        return float(self.transform().m11())
+        # Magnitude of the transform's X basis vector — robust to rotation (m11 alone goes to 0 at 90°).
+        transform = self.transform()
+        return float((transform.m11() ** 2 + transform.m12() ** 2) ** 0.5) or 1.0
 
     def zoom(self, factor: float) -> None:
-        target = self.current_scale() * factor
-        if _MIN_SCALE <= target <= _MAX_SCALE:
-            self._auto_fit = False  # the user has taken control of the zoom level
-            self.scale(factor, factor)
+        current = self.current_scale()
+        target = max(_MIN_SCALE, min(_MAX_SCALE, current * factor))
+        applied = target / current
+        if abs(applied - 1.0) < 1e-3:  # already at the min/max limit
+            return
+        self._auto_fit = False  # the user has taken control of the zoom level
+        self.scale(applied, applied)
 
     def _fit(self) -> None:
         if self._pixmap_item is not None:
             self.fitInView(self._pixmap_item, Qt.AspectRatioMode.KeepAspectRatio)
 
     def wheelEvent(self, event: QWheelEvent) -> None:
-        self.zoom(1.25 if event.angleDelta().y() > 0 else 1 / 1.25)
+        delta = event.angleDelta().y() or event.pixelDelta().y()
+        if delta == 0:
+            return
+        self.zoom(1.25 if delta > 0 else 1 / 1.25)
+        event.accept()
 
     def showEvent(self, event: QShowEvent) -> None:
         super().showEvent(event)

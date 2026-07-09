@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -67,3 +68,11 @@ class SettingsService:
         remaining = [p for p in self._settings.recent_projects if p != path]
         self._settings.recent_projects = [path, *remaining][:_MAX_RECENT]
         self._store.save(self._settings)
+
+    def prune_recent_projects(self, keep: Callable[[str], bool]) -> list[str]:
+        """Drop recent-project entries that no longer satisfy ``keep`` (e.g. deleted folders)."""
+        kept = [p for p in self._settings.recent_projects if keep(p)]
+        if kept != self._settings.recent_projects:
+            self._settings.recent_projects = kept
+            self._store.save(self._settings)
+        return kept

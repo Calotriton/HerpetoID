@@ -227,9 +227,28 @@ class IndividualRepository:
         )
         return [_individual_to_entity(model) for model in self._session.scalars(stmt)]
 
+    def get_by_code(self, species_id: int, code: str) -> Individual | None:
+        stmt = select(IndividualModel).where(
+            IndividualModel.species_id == species_id, IndividualModel.code == code
+        )
+        model = self._session.scalars(stmt).first()
+        return _individual_to_entity(model) if model is not None else None
+
     def list_all(self) -> list[Individual]:
         stmt = select(IndividualModel).order_by(IndividualModel.code)
         return [_individual_to_entity(model) for model in self._session.scalars(stmt)]
+
+    def update(self, individual: Individual) -> None:
+        if individual.id is None:
+            raise ValueError("cannot update an individual without an id")
+        model = self._session.get(IndividualModel, individual.id)
+        if model is None:
+            raise KeyError(f"no individual with id {individual.id}")
+        model.code = individual.code
+        model.name = individual.name
+        model.sex = individual.sex.value
+        model.notes = individual.notes
+        model.status = individual.status.value
 
     def count(self) -> int:
         return int(self._session.scalar(select(func.count()).select_from(IndividualModel)) or 0)
@@ -343,7 +362,10 @@ class ObservationRepository:
         model.location_lon = observation.location.longitude
         model.location_accuracy = observation.location.accuracy_m
         model.location_name = observation.location.name
-        model.metadata_values.clear()  # cascade delete-orphan removes the old rows
+        model.metadata_values.clear()  # cascade delete-orphan marks the old rows for deletion
+        # Flush the orphan deletes before inserting the replacements: otherwise SQLAlchemy may INSERT a
+        # new (observation_id, field_key) row before DELETEing the old one, tripping the UNIQUE index.
+        self._session.flush()
         for key, value in observation.measurements.items():
             row = MetadataModel(field_key=key)
             _assign_metadata_value(row, value)

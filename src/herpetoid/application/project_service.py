@@ -74,6 +74,11 @@ class ProjectService:
             path=path, project=project, database=database, image_store=FileImageStore(path)
         )
 
+    @staticmethod
+    def is_project_bundle(path: Path) -> bool:
+        """True if ``path`` looks like a HerpetoID bundle (contains the project database)."""
+        return (path / _DB_FILENAME).exists()
+
     def open(self, path: Path) -> ProjectContext:
         db_path = path / _DB_FILENAME
         if not db_path.exists():

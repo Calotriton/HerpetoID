@@ -48,7 +48,10 @@ def test_image_viewer_set_and_zoom(qtbot) -> None:
     assert viewer.has_image()
     before = viewer.current_scale()
     viewer.zoom(2.0)
-    assert viewer.current_scale() > before
+    zoomed_in = viewer.current_scale()
+    assert zoomed_in > before
+    viewer.zoom(1 / 2.0)  # scrolling the other way must zoom back out
+    assert viewer.current_scale() < zoomed_in
 
 
 def test_main_window_navigation(app_state: AppState, qtbot) -> None:
@@ -142,9 +145,25 @@ def test_import_refreshes_other_screens(app_state: AppState, tmp_path: Path, qtb
     importer.import_files([source])
 
     assert observations.table.rowCount() == 1  # refreshed via project_changed
-    assert (
-        candidates.query_combo.count() == 1
-    )  # a query is now selectable -> identification can run
+    # A freshly imported observation is not yet comparable (no individual, no ROI).
+    assert candidates.query_combo.count() == 0
+
+    from herpetoid.api import ROI
+
+    catalog = app_state.catalog
+    assert catalog is not None
+    obs = catalog.list_observations()[0]
+    species = catalog.list_species()[0]
+    assert obs.id is not None and species.id is not None
+    individual = catalog.create_individual(species.id)
+    catalog.link_observation(obs.id, individual.id)
+    image = catalog.images_for(obs.id)[0]
+    assert image.id is not None
+    catalog.set_image_roi(image.id, ROI.rectangle(2, 2, 20, 20))
+    app_state.project_changed.emit()
+
+    # Now that it is an individual with a marked ROI, it becomes selectable for identification.
+    assert candidates.query_combo.count() == 1
 
 
 def test_dynamic_form_roundtrip_and_validation(qtbot) -> None:
@@ -325,10 +344,108 @@ def test_observation_editor_saves_measurements_and_roi(
     assert saved_roi.bounding_box() == (5, 6, 30, 20)
 
 
+def test_reopen_last_project_on_launch(app_state: AppState, tmp_path: Path) -> None:
+    from herpetoid.gui.app import reopen_last_project
+
+    app_state.settings.add_recent_project(str(tmp_path / "does-not-exist"))  # stale entry, skipped
+    app_state.create_project(tmp_path / "proj", "Kept")
+    app_state.close_project()
+    assert app_state.project is None
+
+    reopen_last_project(app_state)  # picks up the most recent still-existing bundle
+    assert app_state.project is not None
+    assert app_state.project.project.name == "Kept"
+
+
+def test_nav_order_workflow(app_state: AppState, qtbot) -> None:
+    window = MainWindow(app_state)
+    qtbot.addWidget(window)
+    names = window.screen_names()
+    assert names.index("Observations") < names.index("Candidates")
+    assert names.index("Candidates") < names.index("Individuals")
+
+
+def test_observation_code_creates_and_links_individual(
+    app_state: AppState, tmp_path: Path, qtbot
+) -> None:
+    from PIL import Image as PilImage
+
+    from herpetoid.api import ROI
+    from herpetoid.domain import PluginRef
+    from herpetoid.gui.screens.candidate_ranking import CandidateRankingScreen
+    from herpetoid.gui.screens.observations import ObservationsScreen
+
+    app_state.create_project(tmp_path / "proj", "P")
+    catalog = app_state.catalog
+    assert catalog is not None
+    species = catalog.ensure_species(
+        "Calotriton asper", module=PluginRef("calotriton_asper", "1.0")
+    )
+    assert species.id is not None
+    image = tmp_path / "i.png"
+    PilImage.fromarray(np.full((64, 64, 3), 120, np.uint8)).save(image)
+    obs = catalog.import_observation(species.id, [image])
+    assert obs.id is not None
+
+    editor = ObservationsScreen(app_state)
+    qtbot.addWidget(editor)
+    assert editor._current is not None  # first row auto-selected
+    editor.code_edit.setText("CA-777")
+    editor.viewer.set_roi(ROI.rectangle(5, 5, 40, 40))
+    editor.save()
+
+    # The code created + linked an individual, which now shows up in the Individuals catalog.
+    individual = catalog.find_individual_by_code(species.id, "CA-777")
+    assert individual is not None
+    reloaded = catalog.get_observation(obs.id)
+    assert reloaded is not None and reloaded.individual_id == individual.id
+    assert any(i.code == "CA-777" for i in catalog.list_individuals())
+
+    # A newly-saved observation with an ROI is selectable in Candidates, labelled by its code.
+    candidates = CandidateRankingScreen(app_state)
+    qtbot.addWidget(candidates)
+    assert candidates.query_combo.count() == 1
+    assert candidates.query_combo.itemData(0) == obs.id
+    assert "CA-777" in candidates.query_combo.itemText(0)
+
+
+def test_observation_with_roi_but_no_individual_is_selectable(
+    app_state: AppState, tmp_path: Path, qtbot
+) -> None:
+    from PIL import Image as PilImage
+
+    from herpetoid.api import ROI
+    from herpetoid.domain import PluginRef
+    from herpetoid.gui.screens.candidate_ranking import CandidateRankingScreen
+
+    app_state.create_project(tmp_path / "proj", "P")
+    catalog = app_state.catalog
+    assert catalog is not None
+    species = catalog.ensure_species(
+        "Calotriton asper", module=PluginRef("calotriton_asper", "1.0")
+    )
+    assert species.id is not None
+    image = tmp_path / "i.png"
+    PilImage.fromarray(np.full((64, 64, 3), 120, np.uint8)).save(image)
+    obs = catalog.import_observation(species.id, [image])
+    assert obs.id is not None
+    stored = catalog.images_for(obs.id)[0]
+    assert stored.id is not None
+    catalog.set_image_roi(stored.id, ROI.rectangle(5, 5, 40, 40))  # ROI only, no individual
+
+    candidates = CandidateRankingScreen(app_state)
+    qtbot.addWidget(candidates)
+    # It must still be selectable as a query so it *can* be identified/assigned.
+    assert candidates.query_combo.count() == 1
+    assert candidates.query_combo.itemData(0) == obs.id
+    assert "unassigned" in candidates.query_combo.itemText(0)
+
+
 def test_candidate_ranking_identify_and_confirm(app_state: AppState, tmp_path: Path, qtbot) -> None:
     import cv2
     from PIL import Image as PilImage
 
+    from herpetoid.api import ROI
     from herpetoid.domain import PluginRef
     from herpetoid.gui.screens.candidate_ranking import CandidateRankingScreen
 
@@ -368,16 +485,31 @@ def test_candidate_ranking_identify_and_confirm(app_state: AppState, tmp_path: P
     )
     assert species.id is not None
     base = spots(1)
-    pa, pb, pc = tmp_path / "a.png", tmp_path / "b.png", tmp_path / "c.png"
+    pa, pb, pc, pd = (tmp_path / f"{n}.png" for n in "abcd")
     save(pa, base)
     save(pb, rotate(base, 10))
     save(pc, spots(999))
-    obs_a = catalog.import_observation(species.id, [pa])
+    save(pd, spots(500))
+    obs_a = catalog.import_observation(species.id, [pa], measurements={"svl": 50.0, "sex": "female"})
     obs_b = catalog.import_observation(species.id, [pb])
-    catalog.import_observation(species.id, [pc])
+    obs_c = catalog.import_observation(species.id, [pc])
+    obs_d = catalog.import_observation(species.id, [pd])  # not enrolled -> must be excluded
+
+    # Only cataloged individuals with a marked ROI are comparable; enrol a, b and c (not d).
+    individuals = {}
+    for obs in (obs_a, obs_b, obs_c):
+        assert obs.id is not None
+        individual = catalog.create_individual(species.id)
+        catalog.link_observation(obs.id, individual.id)
+        image = catalog.images_for(obs.id)[0]
+        assert image.id is not None
+        catalog.set_image_roi(image.id, ROI.rectangle(10, 10, 236, 236))
+        individuals[obs.id] = individual
 
     screen = CandidateRankingScreen(app_state)
     qtbot.addWidget(screen)
+    assert screen.query_combo.count() == 3  # a, b, c — not the un-enrolled d
+    assert screen.query_combo.findData(obs_d.id) == -1
     screen.query_combo.setCurrentIndex(screen.query_combo.findData(obs_a.id))
     screen.algorithm_combo.setCurrentIndex(screen.algorithm_combo.findData("orb"))
     screen.identify()
@@ -385,11 +517,15 @@ def test_candidate_ranking_identify_and_confirm(app_state: AppState, tmp_path: P
     assert screen._candidates
     assert screen._candidates[0].observation.id == obs_b.id  # same individual (rotated) first
     assert screen.query_viewer.has_image()
+    assert screen.query_info.rowCount() > 0  # species-driven info panel populated (svl, sex, …)
     screen.table.selectRow(0)
     assert screen.candidate_viewer.has_image()
+    assert screen.candidate_info.rowCount() > 0
 
-    screen.confirm_same()  # links query + candidate to one (new) individual
-    assert catalog.individual_count() == 1
+    screen.confirm_same()  # links the query to the selected candidate's individual
+    reloaded_a = catalog.get_observation(obs_a.id)
+    assert reloaded_a is not None
+    assert reloaded_a.individual_id == individuals[obs_b.id].id  # now share one individual
 
 
 def test_comparison_screen_compares_two_observations(
@@ -427,6 +563,16 @@ def test_comparison_screen_compares_two_observations(
     save(pb, base)  # identical -> should match strongly
     obs_a = catalog.import_observation(species.id, [pa])
     obs_b = catalog.import_observation(species.id, [pb])
+    # Both must be cataloged individuals with a marked ROI to be comparable.
+    from herpetoid.api import ROI
+
+    for obs in (obs_a, obs_b):
+        assert obs.id is not None
+        individual = catalog.create_individual(species.id)
+        catalog.link_observation(obs.id, individual.id)
+        image = catalog.images_for(obs.id)[0]
+        assert image.id is not None
+        catalog.set_image_roi(image.id, ROI.rectangle(10, 10, 236, 236))
 
     screen = ComparisonScreen(app_state)
     qtbot.addWidget(screen)
@@ -496,8 +642,52 @@ def test_individual_browser(app_state: AppState, tmp_path: Path, qtbot) -> None:
     qtbot.addWidget(screen)
     assert screen.table.rowCount() == 1
     assert screen.table.item(0, 0).text() == "CA-001"
-    assert screen.table.item(0, 3).text() == "1"  # one linked observation
+    assert screen.table.item(0, 4).text() == "1"  # one linked observation (Obs. column)
     assert screen.viewer.has_image()
+    assert screen.info_table.rowCount() > 0  # species-driven details panel is populated
+
+
+def test_individual_editor_updates_code_and_measurements(
+    app_state: AppState, tmp_path: Path, qtbot
+) -> None:
+    from PIL import Image as PilImage
+
+    from herpetoid.domain import PluginRef, Sex
+    from herpetoid.gui.screens.individuals import IndividualBrowserScreen, IndividualEditDialog
+
+    app_state.create_project(tmp_path / "proj", "P")
+    catalog = app_state.catalog
+    assert catalog is not None
+    species = catalog.ensure_species(
+        "Calotriton asper", module=PluginRef("calotriton_asper", "1.0")
+    )
+    assert species.id is not None
+    image = tmp_path / "i.png"
+    PilImage.fromarray(np.full((16, 16, 3), 100, np.uint8)).save(image)
+    observation = catalog.import_observation(species.id, [image])
+    individual = catalog.create_individual(species.id, code="CA-001")
+    assert observation.id is not None
+    catalog.link_observation(observation.id, individual.id)
+
+    screen = IndividualBrowserScreen(app_state)
+    qtbot.addWidget(screen)
+
+    fields = list(app_state.registry.create_module("calotriton_asper").define_observation_fields())
+    dialog = IndividualEditDialog(individual, fields, {}, screen)
+    dialog.code_edit.setText("CA-042")
+    dialog.sex_combo.setCurrentText("female")
+    dialog._form.set_values({"svl": 48.5})  # measurement written to the individual's observation
+    catalog.update_individual(dialog.updated_individual())
+    representative = catalog.observations_for_individual(individual.id)[0]
+    representative.measurements = dialog.measurement_values()
+    catalog.update_observation(representative)
+
+    reloaded = catalog.get_individual(individual.id)
+    assert reloaded is not None
+    assert reloaded.code == "CA-042"
+    assert reloaded.sex is Sex.FEMALE
+    reloaded_obs = catalog.observations_for_individual(individual.id)[0]
+    assert reloaded_obs.measurements["svl"] == 48.5
 
 
 def test_help_screen_renders_manual(qtbot) -> None:

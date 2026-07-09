@@ -250,7 +250,9 @@ class ComparisonScreen(QWidget):
         if self._state.project is None:
             self.detail_label.setText("Open a project first.")
         elif not has_pair:
-            self.detail_label.setText("Import at least two observations to compare.")
+            self.detail_label.setText(
+                "Need at least two observations with a marked ROI (Observations tab) to compare."
+            )
         else:
             self.detail_label.setText("Pick two observations and press Compare.")
             if self.obs_b_combo.count() >= 2:
@@ -263,9 +265,12 @@ class ComparisonScreen(QWidget):
         if catalog is None:
             return
         self._species_names = {s.id: s.scientific_name for s in catalog.list_species()}
-        for obs in catalog.list_observations():
+        codes = {i.id: i.code for i in catalog.list_individuals()}
+        # Any observation with a marked ROI can be compared (assigned to an individual or not).
+        for obs in catalog.comparable_observations():
             species = self._species_names.get(obs.species_id, "")
-            label = f"Obs {obs.id} · {species} · {obs.observer or '-'}"
+            code = codes.get(obs.individual_id) if obs.individual_id else None
+            label = f"{code} · {species}" if code else f"Obs {obs.id} · {species} · unassigned"
             self.obs_a_combo.addItem(label, obs.id)
             self.obs_b_combo.addItem(label, obs.id)
 

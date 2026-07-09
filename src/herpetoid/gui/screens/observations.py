@@ -102,7 +102,8 @@ class ObservationsScreen(QWidget):
         controls_and_preview = QHBoxLayout()
         controls = QVBoxLayout()
 
-        roi_row = QHBoxLayout()
+        roi_group = QGroupBox("Region of interest")
+        roi_row = QHBoxLayout(roi_group)
         self.draw_button = QPushButton("Draw ROI")
         self.draw_button.setCheckable(True)
         self.draw_button.toggled.connect(self.viewer.set_draw_mode)
@@ -116,24 +117,10 @@ class ObservationsScreen(QWidget):
         for widget in (self.draw_button, self.finish_button, self.undo_button, clear_roi_button):
             roi_row.addWidget(widget)
         roi_row.addStretch(1)
-        controls.addLayout(roi_row)
-
-        view_row = QHBoxLayout()
-        rotate_left = QPushButton("⟲ Rotate left")
-        rotate_left.setToolTip("Turn the picture 90° counter-clockwise")
-        rotate_left.clicked.connect(lambda: self.viewer.rotate_view(-90))
-        rotate_right = QPushButton("Rotate right ⟳")
-        rotate_right.setToolTip("Turn the picture 90° clockwise")
-        rotate_right.clicked.connect(lambda: self.viewer.rotate_view(90))
-        reset_view_button = QPushButton("Reset view")
-        reset_view_button.setToolTip("Fit the whole picture and clear any rotation")
-        reset_view_button.clicked.connect(self.viewer.reset_view)
-        for widget in (rotate_left, rotate_right, reset_view_button):
-            view_row.addWidget(widget)
-        view_row.addStretch(1)
-        controls.addLayout(view_row)
+        # Rotate / reset live as a small floating toolbar in the image's corner (see RoiImageViewer),
+        # so the ROI tools get the full width here.
+        controls.addWidget(roi_group)
         controls.addStretch(1)
-        self._view_buttons = (rotate_left, rotate_right, reset_view_button)
         controls_and_preview.addLayout(controls, 1)
 
         preview_group = QGroupBox("Selected area")
@@ -163,6 +150,9 @@ class ObservationsScreen(QWidget):
         universal = QWidget()
         universal_form = QFormLayout(universal)
         universal_form.setContentsMargins(0, 0, 0, 0)
+        self.code_edit = QLineEdit()
+        self.code_edit.setPlaceholderText("e.g. CA-001 (creates/links the individual)")
+        universal_form.addRow("Individual code", self.code_edit)
         self.observer_edit = QLineEdit()
         universal_form.addRow("Observer", self.observer_edit)
         self.date_edit = QDateEdit()
@@ -254,6 +244,7 @@ class ObservationsScreen(QWidget):
     def _load_observation(self, observation: Observation) -> None:
         self._current = observation
         self._set_editing_enabled(True)
+        self.code_edit.setText(self._individual_code(observation))
         self.observer_edit.setText(observation.observer)
         moment = observation.observed_at
         if moment is not None:
@@ -368,6 +359,16 @@ class ObservationsScreen(QWidget):
             observation.measurements = {
                 key: value for key, value in self._form.values().items() if value is not None
             }
+        # An entered code creates/links the individual, so it shows up in the Individuals tab and as
+        # the label in the Candidates/Comparison pickers. Clearing it unassigns the observation.
+        code = self.code_edit.text().strip()
+        if code:
+            individual = catalog.find_individual_by_code(
+                observation.species_id, code
+            ) or catalog.create_individual(observation.species_id, code=code)
+            observation.individual_id = individual.id
+        else:
+            observation.individual_id = None
         catalog.update_observation(observation)
         if self._current_image is not None and self._current_image.id is not None:
             roi = self.viewer.roi()
@@ -375,6 +376,13 @@ class ObservationsScreen(QWidget):
                 catalog.set_image_roi(self._current_image.id, roi)
         self.status_label.setText("Saved.")
         self._state.project_changed.emit()
+
+    def _individual_code(self, observation: Observation) -> str:
+        catalog = self._state.catalog
+        if catalog is None or observation.individual_id is None:
+            return ""
+        individual = catalog.get_individual(observation.individual_id)
+        return individual.code if individual is not None else ""
 
     def _on_draw_toggled(self, checked: bool) -> None:
         self.status_label.setText("Marking ROI — drawing enabled." if checked else "")
@@ -394,6 +402,7 @@ class ObservationsScreen(QWidget):
 
     def _set_editing_enabled(self, enabled: bool) -> None:
         for widget in (
+            self.code_edit,
             self.observer_edit,
             self.date_edit,
             self.notes_edit,
@@ -404,7 +413,6 @@ class ObservationsScreen(QWidget):
             self.draw_button,
             self.finish_button,
             self.undo_button,
-            *self._view_buttons,
         ):
             widget.setEnabled(enabled)
 
@@ -414,6 +422,7 @@ class ObservationsScreen(QWidget):
         self.viewer.clear()
         self.viewer.clear_roi()
         for edit in (
+            self.code_edit,
             self.observer_edit,
             self.notes_edit,
             self.lat_edit,
