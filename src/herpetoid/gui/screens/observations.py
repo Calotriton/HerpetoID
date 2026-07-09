@@ -10,9 +10,12 @@ from datetime import date
 from typing import Any
 
 from PySide6.QtCore import QDate, Qt
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QDateEdit,
     QFormLayout,
+    QFrame,
+    QGroupBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -26,10 +29,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from herpetoid.api import FieldDefinition
+from herpetoid.api import FieldDefinition, ROIKind, ROISpec
 from herpetoid.domain import Image, Location, Observation
 from herpetoid.gui.state import AppState
 from herpetoid.gui.widgets.dynamic_form import DynamicForm
+from herpetoid.gui.widgets.image_viewer import ndarray_to_qimage
 from herpetoid.gui.widgets.roi_image_viewer import RoiImageViewer
 
 _COLUMNS = ["ID", "Species", "Observer", "Individual"]
@@ -74,18 +78,61 @@ class ObservationsScreen(QWidget):
         right_layout.setContentsMargins(6, 0, 0, 0)
 
         self.viewer = RoiImageViewer()
+        self.viewer.roi_changed.connect(self._update_preview)
         right_layout.addWidget(self.viewer, 3)
 
+        self.guidance_label = QLabel()
+        self.guidance_label.setWordWrap(True)
+        self.guidance_label.setStyleSheet("color: gray;")
+        right_layout.addWidget(self.guidance_label)
+
+        controls_and_preview = QHBoxLayout()
+        controls = QVBoxLayout()
+
         roi_row = QHBoxLayout()
-        self.draw_button = QPushButton("Draw ventral ROI")
+        self.draw_button = QPushButton("Draw ROI")
         self.draw_button.setCheckable(True)
         self.draw_button.toggled.connect(self.viewer.set_draw_mode)
+        self.draw_button.toggled.connect(self._on_draw_toggled)
+        self.finish_button = QPushButton("Finish polygon")
+        self.finish_button.clicked.connect(self.viewer.finish_polygon)
+        self.undo_button = QPushButton("Undo point")
+        self.undo_button.clicked.connect(self.viewer.undo_point)
         clear_roi_button = QPushButton("Clear ROI")
         clear_roi_button.clicked.connect(self.viewer.clear_roi)
-        roi_row.addWidget(self.draw_button)
-        roi_row.addWidget(clear_roi_button)
+        for widget in (self.draw_button, self.finish_button, self.undo_button, clear_roi_button):
+            roi_row.addWidget(widget)
         roi_row.addStretch(1)
-        right_layout.addLayout(roi_row)
+        controls.addLayout(roi_row)
+
+        view_row = QHBoxLayout()
+        rotate_left = QPushButton("⟲ Rotate left")
+        rotate_left.setToolTip("Turn the picture 90° counter-clockwise")
+        rotate_left.clicked.connect(lambda: self.viewer.rotate_view(-90))
+        rotate_right = QPushButton("Rotate right ⟳")
+        rotate_right.setToolTip("Turn the picture 90° clockwise")
+        rotate_right.clicked.connect(lambda: self.viewer.rotate_view(90))
+        reset_view_button = QPushButton("Reset view")
+        reset_view_button.setToolTip("Fit the whole picture and clear any rotation")
+        reset_view_button.clicked.connect(self.viewer.reset_view)
+        for widget in (rotate_left, rotate_right, reset_view_button):
+            view_row.addWidget(widget)
+        view_row.addStretch(1)
+        controls.addLayout(view_row)
+        controls.addStretch(1)
+        self._view_buttons = (rotate_left, rotate_right, reset_view_button)
+        controls_and_preview.addLayout(controls, 1)
+
+        preview_group = QGroupBox("Selected area")
+        preview_layout = QVBoxLayout(preview_group)
+        preview_layout.setContentsMargins(6, 6, 6, 6)
+        self.preview_label = QLabel("No ROI")
+        self.preview_label.setFixedSize(180, 140)
+        self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.preview_label.setFrameShape(QFrame.Shape.StyledPanel)
+        preview_layout.addWidget(self.preview_label)
+        controls_and_preview.addWidget(preview_group)
+        right_layout.addLayout(controls_and_preview)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -191,6 +238,7 @@ class ObservationsScreen(QWidget):
         self.lon_edit.setText("" if location.longitude is None else str(location.longitude))
         self.location_edit.setText(location.name or "")
         self._build_form(observation.species_id, observation.measurements)
+        self._configure_roi_tool(observation.species_id)
         self._load_image(observation)
 
     def _build_form(self, species_id: int, values: dict[str, Any]) -> None:
@@ -215,6 +263,39 @@ class ObservationsScreen(QWidget):
             return list(module.define_observation_fields())
         except Exception:  # a broken module must not break the editor
             return []
+
+    def _species_roi_spec(self, species_id: int) -> ROISpec | None:
+        catalog = self._state.catalog
+        if catalog is None:
+            return None
+        species = catalog.get_species(species_id)
+        if species is None or species.module is None:
+            return None
+        if self._state.registry.module(species.module.plugin_id) is None:
+            return None
+        try:
+            module = self._state.registry.create_module(species.module.plugin_id)
+            return module.define_species_profile().roi
+        except Exception:  # a broken module must not break the editor
+            return None
+
+    def _configure_roi_tool(self, species_id: int) -> None:
+        """Adapt the ROI tool to what the species declares (polygon vs rectangle + guidance)."""
+        spec = self._species_roi_spec(species_id)
+        kind = spec.kind if spec is not None else ROIKind.RECTANGLE
+        self.viewer.set_roi_kind(kind)
+        is_polygon = kind is ROIKind.POLYGON
+        self.draw_button.setText("Draw polygon" if is_polygon else "Draw ROI")
+        self.finish_button.setVisible(is_polygon)
+        self.undo_button.setVisible(is_polygon)
+        if spec is not None and spec.guidance:
+            self.guidance_label.setText(spec.guidance)
+        elif is_polygon:
+            self.guidance_label.setText(
+                "Click to place points around the region; double-click (or Finish) to close it."
+            )
+        else:
+            self.guidance_label.setText("Drag a box around the pattern region.")
 
     def _load_image(self, observation: Observation) -> None:
         self.draw_button.setChecked(False)
@@ -267,6 +348,22 @@ class ObservationsScreen(QWidget):
         self.status_label.setText("Saved.")
         self._state.project_changed.emit()
 
+    def _on_draw_toggled(self, checked: bool) -> None:
+        self.status_label.setText("Marking ROI — drawing enabled." if checked else "")
+
+    def _update_preview(self) -> None:
+        preview = self.viewer.roi_preview()
+        if preview is None:
+            self.preview_label.setPixmap(QPixmap())
+            self.preview_label.setText("No ROI")
+            return
+        pixmap = QPixmap.fromImage(ndarray_to_qimage(preview)).scaled(
+            self.preview_label.size(),
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        self.preview_label.setPixmap(pixmap)
+
     def _set_editing_enabled(self, enabled: bool) -> None:
         for widget in (
             self.observer_edit,
@@ -277,6 +374,9 @@ class ObservationsScreen(QWidget):
             self.location_edit,
             self.save_button,
             self.draw_button,
+            self.finish_button,
+            self.undo_button,
+            *self._view_buttons,
         ):
             widget.setEnabled(enabled)
 

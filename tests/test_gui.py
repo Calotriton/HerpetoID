@@ -248,6 +248,34 @@ def test_roi_image_viewer_roundtrip(qtbot) -> None:
     assert viewer.roi() is None
 
 
+def test_roi_image_viewer_polygon_roundtrip(qtbot) -> None:
+    from herpetoid.api import ROI, ROIKind
+    from herpetoid.gui.widgets.roi_image_viewer import RoiImageViewer
+
+    viewer = RoiImageViewer()
+    qtbot.addWidget(viewer)
+    viewer.set_image(np.zeros((64, 64, 3), np.uint8))
+    viewer.set_roi_kind(ROIKind.POLYGON)
+
+    polygon = ROI(kind=ROIKind.POLYGON, points=((5, 5), (40, 8), (30, 45), (8, 38)))
+    viewer.set_roi(polygon)
+    marked = viewer.roi()
+    assert marked is not None
+    assert marked.kind is ROIKind.POLYGON
+    assert len(marked.points) == 4
+    assert marked.bounding_box() == (5, 5, 35, 40)
+
+    # the preview reflects the marked (masked) region, cropped to the polygon's bounding box
+    preview = viewer.roi_preview()
+    assert preview is not None
+    assert preview.shape == (40, 35, 3)
+
+    viewer.undo_point()  # 3 points left -> still a valid polygon
+    assert viewer.roi() is not None
+    viewer.undo_point()  # 2 points left -> not enough for a polygon
+    assert viewer.roi() is None
+
+
 def test_observation_editor_saves_measurements_and_roi(
     app_state: AppState, tmp_path: Path, qtbot
 ) -> None:
