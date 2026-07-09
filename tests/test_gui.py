@@ -357,6 +357,29 @@ def test_reopen_last_project_on_launch(app_state: AppState, tmp_path: Path) -> N
     assert app_state.project.project.name == "Kept"
 
 
+def test_home_screen_actions_and_status(app_state: AppState, tmp_path: Path, qtbot) -> None:
+    from PySide6.QtWidgets import QLabel
+
+    from herpetoid.gui.screens.home import HomeScreen, _ActionCard
+
+    visited: list[str] = []
+    screen = HomeScreen(app_state, visited.append)
+    qtbot.addWidget(screen)
+
+    cards = screen.findChildren(_ActionCard)
+    assert len(cards) == 8
+    cards[0]._on_click()  # the first quick-action card navigates
+    assert visited == ["Projects"]
+
+    # No project yet -> the status card prompts to open one.
+    assert any("No project open" in w.text() for w in screen.findChildren(QLabel))
+
+    # Opening a project refreshes the status card with the project name + live stats.
+    app_state.create_project(tmp_path / "proj", "MyStudy")
+    texts = [w.text() for w in screen.findChildren(QLabel)]
+    assert any("MyStudy" in t for t in texts)
+
+
 def test_nav_order_workflow(app_state: AppState, qtbot) -> None:
     window = MainWindow(app_state)
     qtbot.addWidget(window)

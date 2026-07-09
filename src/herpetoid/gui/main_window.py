@@ -37,7 +37,7 @@ class MainWindow(QMainWindow):
         self._nav.setObjectName("navigation")
         self._stack = QStackedWidget()
 
-        self._add_screen("Home", HomeScreen())
+        self._add_screen("Home", HomeScreen(state, self.navigate_to))
         self._add_screen("Projects", ProjectManagerScreen(state))
         self._add_screen("Import", ImageImportScreen(state))
         self._add_screen("Observations", ObservationsScreen(state))

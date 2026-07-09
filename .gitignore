@@ -37,4 +37,7 @@ Thumbs.db
 .vscode/
 
 # ---- Claude Code (local / personal, not shared) ----
-.claude/settings.local.json
+.claude/
+# Claude session/feedback logs — private working notes, kept out of the shared repo.
+docs/session-log.md
+docs/feedback-log.md
