@@ -6,6 +6,7 @@ the query as a new individual).
 
 from __future__ import annotations
 
+import numpy as np
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox,
@@ -20,6 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from herpetoid.api import ROI
 from herpetoid.application.identification_runner import Candidate, IdentificationRunner
 from herpetoid.gui.state import AppState
 from herpetoid.gui.widgets.image_viewer import ImageViewer
@@ -28,18 +30,27 @@ from herpetoid.gui.widgets.info_table import (
     observation_info_rows,
     species_field_definitions,
 )
+from herpetoid.gui.widgets.roi_preview import RoiPreview
 
 
-def _viewer_panel(title: str) -> tuple[QWidget, ImageViewer, InfoTable]:
+def _viewer_panel(title: str) -> tuple[QWidget, ImageViewer, InfoTable, RoiPreview]:
     panel = QWidget()
     layout = QVBoxLayout(panel)
     layout.setContentsMargins(0, 0, 0, 0)
     layout.addWidget(QLabel(f"<b>{title}</b>"))
     viewer = ImageViewer()
     layout.addWidget(viewer, 3)
+    data_row = QHBoxLayout()
     info = InfoTable()
-    layout.addWidget(info, 2)
-    return panel, viewer, info
+    data_row.addWidget(info, 1)
+    roi_box = QVBoxLayout()
+    roi_box.addWidget(QLabel("ROI"))
+    roi_preview = RoiPreview()
+    roi_box.addWidget(roi_preview)
+    roi_box.addStretch(1)
+    data_row.addLayout(roi_box)  # the ROI crop sits beside the data box for visual comparison
+    layout.addLayout(data_row, 2)
+    return panel, viewer, info, roi_preview
 
 
 class CandidateRankingScreen(QWidget):
@@ -49,15 +60,21 @@ class CandidateRankingScreen(QWidget):
         self._candidates: list[Candidate] = []
         self._query_observation_id: int | None = None
         self._species_names: dict[int | None, str] = {}
+        self._species_by_obs: dict[int | None, str] = {}
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
 
         controls = QHBoxLayout()
-        controls.addWidget(QLabel("Query observation:"))
+        controls.addWidget(QLabel("Query:"))
         self.query_combo = QComboBox()
-        self.query_combo.setMinimumWidth(260)
-        controls.addWidget(self.query_combo, 1)
+        self.query_combo.setMinimumWidth(150)
+        self.query_combo.currentIndexChanged.connect(self._update_query_species)
+        controls.addWidget(self.query_combo)
+        self.query_species_label = QLabel()
+        self.query_species_label.setStyleSheet("color: palette(mid);")
+        controls.addWidget(self.query_species_label)
+        controls.addStretch(1)
         controls.addWidget(QLabel("Algorithm:"))
         self.algorithm_combo = QComboBox()
         controls.addWidget(self.algorithm_combo)
@@ -65,7 +82,6 @@ class CandidateRankingScreen(QWidget):
         self.identify_button.setObjectName("primary")
         self.identify_button.clicked.connect(self.identify)
         controls.addWidget(self.identify_button)
-        controls.addStretch(1)
         layout.addLayout(controls)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -94,8 +110,13 @@ class CandidateRankingScreen(QWidget):
         comparison = QWidget()
         comparison_layout = QHBoxLayout(comparison)
         comparison_layout.setContentsMargins(0, 0, 0, 0)
-        query_panel, self.query_viewer, self.query_info = _viewer_panel("Query")
-        candidate_panel, self.candidate_viewer, self.candidate_info = _viewer_panel("Candidate")
+        query_panel, self.query_viewer, self.query_info, self.query_roi = _viewer_panel("Query")
+        (
+            candidate_panel,
+            self.candidate_viewer,
+            self.candidate_info,
+            self.candidate_roi,
+        ) = _viewer_panel("Candidate")
         comparison_layout.addWidget(query_panel)
         comparison_layout.addWidget(candidate_panel)
         splitter.addWidget(comparison)
@@ -128,6 +149,8 @@ class CandidateRankingScreen(QWidget):
         self.candidate_viewer.clear()
         self.query_info.clear_rows()
         self.candidate_info.clear_rows()
+        self.query_roi.clear_preview()
+        self.candidate_roi.clear_preview()
         self._populate_queries()
         self._populate_algorithms()
         has_project = self._state.project is not None
@@ -150,13 +173,21 @@ class CandidateRankingScreen(QWidget):
         if catalog is None:
             return
         self._species_names = {s.id: s.scientific_name for s in catalog.list_species()}
+        self._species_by_obs = {}
         codes = {i.id: i.code for i in catalog.list_individuals()}
-        # Any observation with a marked ROI can be identified (assigned or not).
+        # Any observation with a marked ROI can be identified (assigned or not). The dropdown shows
+        # just the code (the species is shown once, next to it, to avoid repeating it on every row).
         for obs in catalog.comparable_observations():
-            species = self._species_names.get(obs.species_id, "")
             code = codes.get(obs.individual_id) if obs.individual_id else None
-            label = f"{code} · {species}" if code else f"Obs {obs.id} · {species} · unassigned"
+            label = code if code else f"Obs {obs.id} (unassigned)"
             self.query_combo.addItem(label, obs.id)
+            self._species_by_obs[obs.id] = self._species_names.get(obs.species_id, "")
+        self._update_query_species()
+
+    def _update_query_species(self) -> None:
+        obs_id = self.query_combo.currentData()
+        species = self._species_by_obs.get(obs_id, "") if obs_id is not None else ""
+        self.query_species_label.setText(f"Species: {species}" if species else "")
 
     def _populate_algorithms(self) -> None:
         self.algorithm_combo.clear()
@@ -178,9 +209,16 @@ class CandidateRankingScreen(QWidget):
             self.status_label.setText(f"Identification failed: {exc}")
             return
 
+        # Record that this observation was actually run through identification (drives the
+        # Observations "Ident." column) — distinct from merely having an individual code assigned.
+        catalog = self._state.catalog
+        if catalog is not None:
+            catalog.record_identification(self._query_observation_id, str(algorithm_id))
+
         self._show_image(self.query_viewer, self._query_observation_id)
-        self._show_observation_info(self.query_info, self._query_observation_id)
+        self._show_observation_info(self.query_info, self.query_roi, self._query_observation_id)
         self.candidate_info.clear_rows()
+        self.candidate_roi.clear_preview()
         self.table.setRowCount(len(self._candidates))
         for row, candidate in enumerate(self._candidates):
             individual = candidate.individual.code if candidate.individual else "-"
@@ -207,14 +245,23 @@ class CandidateRankingScreen(QWidget):
             self._show_rel_path(self.candidate_viewer, candidate.image.rel_path)
             code = candidate.individual.code if candidate.individual is not None else None
             self._show_observation_info(
-                self.candidate_info, candidate.observation.id, individual_code=code
+                self.candidate_info,
+                self.candidate_roi,
+                candidate.observation.id,
+                individual_code=code,
             )
         self._update_action_buttons()
 
     def _show_observation_info(
-        self, info_table: InfoTable, observation_id: int | None, *, individual_code: str | None = None
+        self,
+        info_table: InfoTable,
+        roi_preview: RoiPreview,
+        observation_id: int | None,
+        *,
+        individual_code: str | None = None,
     ) -> None:
         info_table.clear_rows()
+        roi_preview.clear_preview()
         catalog = self._state.catalog
         if catalog is None or observation_id is None:
             return
@@ -227,6 +274,22 @@ class CandidateRankingScreen(QWidget):
             code = individual.code if individual is not None else None
         fields = species_field_definitions(self._state, observation.species_id)
         info_table.show_rows(observation_info_rows(observation, fields, individual_code=code))
+        image, roi = self._image_and_roi(observation_id)
+        roi_preview.show_roi(image, roi)
+
+    def _image_and_roi(self, observation_id: int) -> tuple[np.ndarray | None, ROI | None]:
+        catalog = self._state.catalog
+        project = self._state.project
+        if catalog is None or project is None:
+            return None, None
+        images = catalog.images_for(observation_id)
+        if not images or images[0].id is None:
+            return None, None
+        try:
+            image = project.image_store.load(images[0].rel_path)
+        except (OSError, ValueError):
+            return None, None
+        return image, catalog.get_image_roi(images[0].id)
 
     def _selected_candidate(self) -> Candidate | None:
         row = self.table.currentRow()

@@ -115,6 +115,7 @@ class ComparisonScreen(QWidget):
         self._state = state
         self._comparison: PairwiseComparison | None = None
         self._species_names: dict[int | None, str] = {}
+        self._species_by_obs: dict[int | None, str] = {}
         self._composite_shape: tuple[int, ...] | None = None
 
         layout = QVBoxLayout(self)
@@ -126,13 +127,13 @@ class ComparisonScreen(QWidget):
         layout.addWidget(title)
 
         controls = QHBoxLayout()
-        controls.addWidget(QLabel("Observation A"))
+        controls.addWidget(QLabel("A:"))
         self.obs_a_combo = QComboBox()
-        self.obs_a_combo.setMinimumWidth(220)
+        self.obs_a_combo.setMinimumWidth(140)
         controls.addWidget(self.obs_a_combo)
-        controls.addWidget(QLabel("Observation B"))
+        controls.addWidget(QLabel("B:"))
         self.obs_b_combo = QComboBox()
-        self.obs_b_combo.setMinimumWidth(220)
+        self.obs_b_combo.setMinimumWidth(140)
         controls.addWidget(self.obs_b_combo)
         controls.addWidget(QLabel("Algorithm"))
         self.algorithm_combo = QComboBox()
@@ -142,7 +143,12 @@ class ComparisonScreen(QWidget):
         self.compare_button.clicked.connect(self.compare)
         controls.addWidget(self.compare_button)
         controls.addStretch(1)
+        self.species_label = QLabel()
+        self.species_label.setStyleSheet("color: palette(mid);")
+        controls.addWidget(self.species_label)
         layout.addLayout(controls)
+        self.obs_a_combo.currentIndexChanged.connect(self._update_species_label)
+        self.obs_b_combo.currentIndexChanged.connect(self._update_species_label)
 
         layout.addWidget(self._build_result_panel())
         layout.addWidget(self._build_overlay_controls())
@@ -257,6 +263,7 @@ class ComparisonScreen(QWidget):
             self.detail_label.setText("Pick two observations and press Compare.")
             if self.obs_b_combo.count() >= 2:
                 self.obs_b_combo.setCurrentIndex(1)  # default to a different second observation
+        self._update_species_label()
 
     def _populate_observations(self) -> None:
         self.obs_a_combo.clear()
@@ -265,14 +272,25 @@ class ComparisonScreen(QWidget):
         if catalog is None:
             return
         self._species_names = {s.id: s.scientific_name for s in catalog.list_species()}
+        self._species_by_obs = {}
         codes = {i.id: i.code for i in catalog.list_individuals()}
-        # Any observation with a marked ROI can be compared (assigned to an individual or not).
+        # The dropdowns show just the code; the species is shown once beside the controls.
         for obs in catalog.comparable_observations():
-            species = self._species_names.get(obs.species_id, "")
             code = codes.get(obs.individual_id) if obs.individual_id else None
-            label = f"{code} · {species}" if code else f"Obs {obs.id} · {species} · unassigned"
+            label = code if code else f"Obs {obs.id} (unassigned)"
             self.obs_a_combo.addItem(label, obs.id)
             self.obs_b_combo.addItem(label, obs.id)
+            self._species_by_obs[obs.id] = self._species_names.get(obs.species_id, "")
+
+    def _update_species_label(self) -> None:
+        a_species = self._species_by_obs.get(self.obs_a_combo.currentData(), "")
+        b_species = self._species_by_obs.get(self.obs_b_combo.currentData(), "")
+        if a_species and a_species == b_species:
+            self.species_label.setText(f"Species: {a_species}")
+        elif a_species or b_species:
+            self.species_label.setText(f"Species: A {a_species or '—'} · B {b_species or '—'}")
+        else:
+            self.species_label.setText("")
 
     def _populate_algorithms(self) -> None:
         self.algorithm_combo.clear()

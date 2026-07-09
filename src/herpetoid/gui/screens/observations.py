@@ -10,7 +10,7 @@ from datetime import date
 from typing import Any
 
 from PySide6.QtCore import QDate, Qt
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtWidgets import (
     QDateEdit,
     QFormLayout,
@@ -36,7 +36,10 @@ from herpetoid.gui.widgets.dynamic_form import DynamicForm
 from herpetoid.gui.widgets.image_viewer import ndarray_to_qimage
 from herpetoid.gui.widgets.roi_image_viewer import RoiImageViewer
 
-_COLUMNS = ["ID", "Species", "Observer", "Individual"]
+# Species is intentionally omitted from this list (it's redundant per-row and shown in the editor).
+# "Saved" = has a saved ROI; "Ident." = assigned to an individual (queried & identified);
+# "Type" = New individual vs Recapture.
+_COLUMNS = ["ID", "Observer", "Indiv.", "Saved", "Ident.", "Type"]
 
 
 def _parse_float(text: str) -> float | None:
@@ -54,7 +57,6 @@ class ObservationsScreen(QWidget):
         super().__init__()
         self._state = state
         self._observations: list[Observation] = []
-        self._species_names: dict[int | None, str] = {}
         self._current: Observation | None = None
         self._current_image: Image | None = None
         self._form: DynamicForm | None = None
@@ -71,18 +73,28 @@ class ObservationsScreen(QWidget):
         self.table = QTableWidget(0, len(_COLUMNS))
         self.table.setHorizontalHeaderLabels(_COLUMNS)
         table_header = self.table.horizontalHeader()
-        table_header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)  # ID
-        table_header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)  # Species
-        table_header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)  # Observer
-        table_header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)  # Individual
+        # Every column is user-resizable (drag the header edges); text elides to whatever width you set.
+        for column in range(len(_COLUMNS)):
+            table_header.setSectionResizeMode(column, QHeaderView.ResizeMode.Interactive)
+        for column, width in enumerate((30, 78, 66, 46, 56, 74)):
+            self.table.setColumnWidth(column, width)
+        self.table.setTextElideMode(Qt.TextElideMode.ElideRight)
+        for index, tip in (
+            (3, "A tick means the observation has a saved ROI — ready to identify."),
+            (4, "A tick means it has been assigned to an individual (queried & identified)."),
+            (5, "Whether this capture established a New individual or is a Recapture of a known one."),
+        ):
+            header_item = self.table.horizontalHeaderItem(index)
+            if header_item is not None:
+                header_item.setToolTip(tip)
         self.table.verticalHeader().setVisible(False)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.table.itemSelectionChanged.connect(self._on_select)
         table_layout.addWidget(self.table, 1)
-        table_panel.setMinimumWidth(180)
-        table_panel.setMaximumWidth(280)
+        table_panel.setMinimumWidth(300)
+        table_panel.setMaximumWidth(540)
         splitter.addWidget(table_panel)
 
         # --- Centre: the image + ROI tools (this pane gets the space) ------------------------
@@ -108,13 +120,11 @@ class ObservationsScreen(QWidget):
         self.draw_button.setCheckable(True)
         self.draw_button.toggled.connect(self.viewer.set_draw_mode)
         self.draw_button.toggled.connect(self._on_draw_toggled)
-        self.finish_button = QPushButton("Finish polygon")
-        self.finish_button.clicked.connect(self.viewer.finish_polygon)
-        self.undo_button = QPushButton("Undo point")
-        self.undo_button.clicked.connect(self.viewer.undo_point)
         clear_roi_button = QPushButton("Clear ROI")
         clear_roi_button.clicked.connect(self.viewer.clear_roi)
-        for widget in (self.draw_button, self.finish_button, self.undo_button, clear_roi_button):
+        # Polygon is placed by clicking points; right-click removes the last point, double-click closes
+        # it — so no separate Finish/Undo buttons are needed.
+        for widget in (self.draw_button, clear_roi_button):
             roi_row.addWidget(widget)
         roi_row.addStretch(1)
         # Rotate / reset live as a small floating toolbar in the image's corner (see RoiImageViewer),
@@ -196,12 +206,21 @@ class ObservationsScreen(QWidget):
         splitter.setStretchFactor(0, 0)  # table: fixed-ish
         splitter.setStretchFactor(1, 1)  # image: takes all extra space
         splitter.setStretchFactor(2, 0)  # form: fixed-ish
-        splitter.setSizes([220, 780, 320])
+        splitter.setSizes([430, 590, 320])
         layout.addWidget(splitter)
 
         self._set_editing_enabled(False)
         state.project_changed.connect(self._refresh)
         self._refresh()
+
+    @staticmethod
+    def _tick_item(on: bool, tooltip: str) -> QTableWidgetItem:
+        item = QTableWidgetItem("✓" if on else "")
+        item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        if on:
+            item.setForeground(QColor(64, 200, 64))
+            item.setToolTip(tooltip)
+        return item
 
     def _refresh(self) -> None:
         catalog = self._state.catalog
@@ -212,17 +231,40 @@ class ObservationsScreen(QWidget):
             self._clear_editor()
             return
 
-        self._species_names = {s.id: s.scientific_name for s in catalog.list_species()}
         individuals = {i.id: i.code for i in catalog.list_individuals()}
         self._observations = catalog.list_observations()
+        # "Identified" reflects an actual identification run in Candidates — not merely having an
+        # individual code assigned in this editor.
+        identified_ids = catalog.identified_observation_ids()
+        # The earliest-created observation of each individual is the "New" record; the rest are
+        # recaptures (this is what confirming a match in Candidates produces).
+        first_for_individual: dict[int, int | None] = {}
+        for obs in sorted(self._observations, key=lambda o: (o.id or 0)):
+            if obs.individual_id is not None:
+                first_for_individual.setdefault(obs.individual_id, obs.id)
 
         self.table.blockSignals(True)
         self.table.setRowCount(len(self._observations))
         for row, obs in enumerate(self._observations):
             code = individuals.get(obs.individual_id, "") if obs.individual_id else ""
-            cells = [str(obs.id), self._species_names.get(obs.species_id, ""), obs.observer, code]
-            for column, text in enumerate(cells):
+            for column, text in enumerate((str(obs.id), obs.observer, code)):
                 self.table.setItem(row, column, QTableWidgetItem(text))
+
+            has_roi = obs.id is not None and catalog.has_roi(obs.id)
+            self.table.setItem(row, 3, self._tick_item(has_roi, "Saved with a ROI"))
+
+            individual_id = obs.individual_id
+            self.table.setItem(
+                row, 4, self._tick_item(obs.id in identified_ids, "Run through identification")
+            )
+
+            if individual_id is None:
+                type_text = ""
+            elif obs.id == first_for_individual.get(individual_id):
+                type_text = "New"
+            else:
+                type_text = "Recapture"
+            self.table.setItem(row, 5, QTableWidgetItem(type_text))
         self.table.blockSignals(False)
 
         if not self._observations:
@@ -305,14 +347,15 @@ class ObservationsScreen(QWidget):
         self.viewer.set_roi_kind(kind)
         is_polygon = kind is ROIKind.POLYGON
         self.draw_button.setText("Draw polygon" if is_polygon else "Draw ROI")
-        self.finish_button.setVisible(is_polygon)
-        self.undo_button.setVisible(is_polygon)
-        if spec is not None and spec.guidance:
-            self.guidance_label.setText(spec.guidance)
-        elif is_polygon:
+        if is_polygon:
             self.guidance_label.setText(
-                "Click to place points around the region; double-click (or Finish) to close it."
+                "Click to place points around the region · right-click removes the last point · "
+                "double-click to close."
             )
+            if spec is not None and spec.guidance:
+                self.guidance_label.setText(
+                    f"{spec.guidance}  (Right-click undoes the last point; double-click closes.)"
+                )
         else:
             self.guidance_label.setText("Drag a box around the pattern region.")
 
@@ -411,8 +454,6 @@ class ObservationsScreen(QWidget):
             self.location_edit,
             self.save_button,
             self.draw_button,
-            self.finish_button,
-            self.undo_button,
         ):
             widget.setEnabled(enabled)
 

@@ -30,6 +30,7 @@ from .models import (
     ImageModel,
     ImageRoiModel,
     IndividualModel,
+    MatchRunModel,
     MetadataModel,
     ObservationModel,
     ProjectModel,
@@ -391,3 +392,24 @@ class ObservationRepository:
 
     def count(self) -> int:
         return int(self._session.scalar(select(func.count()).select_from(ObservationModel)) or 0)
+
+
+class MatchRunRepository:
+    """Records identification runs so a screen can tell which observations were actually identified."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def add(self, query_image_id: int, algorithm_id: str = "") -> None:
+        self._session.add(
+            MatchRunModel(query_image_id=query_image_id, algorithm_id=algorithm_id)
+        )
+
+    def identified_observation_ids(self) -> set[int]:
+        """Observation ids whose image has been used as a query (i.e. run through identification)."""
+        stmt = (
+            select(ImageModel.observation_id)
+            .join(MatchRunModel, MatchRunModel.query_image_id == ImageModel.id)
+            .distinct()
+        )
+        return {int(observation_id) for observation_id in self._session.scalars(stmt)}

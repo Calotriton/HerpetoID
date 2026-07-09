@@ -187,6 +187,23 @@ class CatalogService:
             return False
         return self.get_image_roi(images[0].id) is not None
 
+    def record_identification(self, observation_id: int, algorithm_id: str = "") -> None:
+        """Record that this observation was run through identification (a query in Candidates)."""
+        from herpetoid.infrastructure.db.repositories import MatchRunRepository
+
+        images = self.images_for(observation_id)
+        if not images or images[0].id is None:
+            return
+        with self._project.database.session() as session:
+            MatchRunRepository(session).add(images[0].id, algorithm_id)
+
+    def identified_observation_ids(self) -> set[int]:
+        """Observations that have been run through identification at least once (see Candidates)."""
+        from herpetoid.infrastructure.db.repositories import MatchRunRepository
+
+        with self._project.database.session() as session:
+            return MatchRunRepository(session).identified_observation_ids()
+
     def comparable_observations(self) -> list[Observation]:
         """Observations that can be *selected* for identification / comparison: those with a marked ROI.
 
@@ -211,6 +228,17 @@ class CatalogService:
 
         with self._project.database.session() as session:
             ObservationRepository(session).update(observation)
+
+    def delete_observation(self, observation_id: int) -> None:
+        """Delete an observation and (via cascade) its image rows, metadata and ROI.
+
+        Image *files* are content-addressed and may be shared by other observations, so they are left
+        on disk rather than risk removing a file another observation still points to.
+        """
+        from herpetoid.infrastructure.db.repositories import ObservationRepository
+
+        with self._project.database.session() as session:
+            ObservationRepository(session).delete(observation_id)
 
     def get_image_roi(self, image_id: int) -> ROI | None:
         from herpetoid.infrastructure.db.repositories import ImageRepository

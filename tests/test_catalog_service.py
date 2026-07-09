@@ -43,6 +43,30 @@ def test_catalog_service_species_and_import(tmp_path: Path) -> None:
     context.close()
 
 
+def test_delete_observation_with_roi_and_individual(tmp_path: Path) -> None:
+    """Deleting must cascade the ROI row too (the image_rois FK otherwise blocks it)."""
+    from herpetoid.api import ROI
+
+    context = ProjectService().create(tmp_path / "bundle", "B")
+    catalog = CatalogService(context)
+    species = catalog.ensure_species("Calotriton asper", module=PluginRef("calotriton_asper", "1.0"))
+    assert species.id is not None
+    source = tmp_path / "newt.png"
+    _image(source)
+    observation = catalog.import_observation(species.id, [source])
+    assert observation.id is not None
+    image = catalog.images_for(observation.id)[0]
+    assert image.id is not None
+    catalog.set_image_roi(image.id, ROI.rectangle(2, 2, 10, 10))
+    individual = catalog.create_individual(species.id, code="CA-1")
+    catalog.link_observation(observation.id, individual.id)
+
+    catalog.delete_observation(observation.id)
+    assert catalog.observation_count() == 0
+    assert catalog.get_image_roi(image.id) is None
+    assert catalog.individual_count() == 1  # the individual itself is kept
+
+
 def test_observation_can_be_updated_repeatedly(tmp_path: Path) -> None:
     """Re-saving an observation with measurements must not trip the metadata UNIQUE index."""
     context = ProjectService().create(tmp_path / "bundle", "B")

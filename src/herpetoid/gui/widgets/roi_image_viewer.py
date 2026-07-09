@@ -27,27 +27,10 @@ from PySide6.QtWidgets import (
 from herpetoid.api import ROI, ROIKind
 
 from .image_viewer import ImageViewer
+from .roi_preview import roi_crop
 
 _ROI_COLOR = QColor(64, 200, 64)
 _FILL_COLOR = QColor(64, 200, 64, 45)
-
-
-def _to_rgb_u8(region: np.ndarray) -> np.ndarray:
-    """Coerce a grayscale / RGB / RGBA region to a contiguous ``(H, W, 3)`` uint8 array."""
-    array = np.asarray(region)
-    if array.dtype != np.uint8:
-        values = array.astype(np.float64)
-        low, high = float(values.min()), float(values.max())
-        array = (
-            np.zeros(array.shape, np.uint8)
-            if high <= low
-            else ((values - low) / (high - low) * 255.0).astype(np.uint8)
-        )
-    if array.ndim == 2:
-        array = np.stack([array] * 3, axis=-1)
-    elif array.shape[2] == 4:
-        array = array[:, :, :3]
-    return np.ascontiguousarray(array)
 
 
 class RoiImageViewer(ImageViewer):
@@ -209,30 +192,7 @@ class RoiImageViewer(ImageViewer):
 
     def roi_preview(self) -> np.ndarray | None:
         """The cropped (and, for polygons, masked) ROI region, as an RGB uint8 array — or ``None``."""
-        if self._image is None:
-            return None
-        roi = self.roi()
-        if roi is None:
-            return None
-        box = roi.bounding_box()
-        if box is None:
-            return None
-        x, y, w, h = box
-        height, width = self._image.shape[:2]
-        x0, y0 = max(0, x), max(0, y)
-        x1, y1 = min(width, x + w), min(height, y + h)
-        if x1 <= x0 or y1 <= y0:
-            return None
-        rgb = _to_rgb_u8(self._image[y0:y1, x0:x1])
-        if roi.kind is ROIKind.POLYGON and roi.points:
-            import cv2
-
-            mask = np.zeros((y1 - y0, x1 - x0), np.uint8)
-            pts = np.array([[px - x0, py - y0] for px, py in roi.points], np.int32)
-            cv2.fillPoly(mask, [pts.reshape(-1, 1, 2)], 255)
-            dimmed = (rgb.astype(np.float32) * 0.25).astype(np.uint8)
-            rgb = np.where(mask[:, :, None] > 0, rgb, dimmed).astype(np.uint8)
-        return np.ascontiguousarray(rgb)
+        return roi_crop(self._image, self.roi())
 
     # -- interaction -----------------------------------------------------------------------------
     def mousePressEvent(self, event: QMouseEvent) -> None:

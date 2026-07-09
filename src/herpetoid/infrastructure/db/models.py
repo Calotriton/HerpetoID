@@ -163,6 +163,11 @@ class ImageModel(Base):
     descriptors: Mapped[list[DescriptorModel]] = relationship(
         back_populates="image", cascade="all, delete-orphan"
     )
+    # One-to-one; cascade so deleting an image also removes its ROI row (else the image_rois FK blocks
+    # the delete when foreign keys are enforced).
+    roi: Mapped[ImageRoiModel | None] = relationship(
+        back_populates="image", cascade="all, delete-orphan", uselist=False
+    )
 
 
 class DescriptorModel(Base):
@@ -198,6 +203,8 @@ class ImageRoiModel(Base):
     image_id: Mapped[int] = mapped_column(ForeignKey("images.id"), unique=True)
     kind: Mapped[str] = mapped_column(String(20), default="rectangle")
     points: Mapped[list[list[float]]] = mapped_column(JSON, default=list)
+
+    image: Mapped[ImageModel] = relationship(back_populates="roi")
 
 
 class FieldDefinitionModel(Base):

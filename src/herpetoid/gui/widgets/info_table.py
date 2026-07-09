@@ -39,7 +39,7 @@ def species_field_definitions(state: AppState, species_id: int) -> list[FieldDef
         return []
 
 
-def _format_date(value: date | datetime | None) -> str | None:
+def format_date(value: date | datetime | None) -> str | None:
     if value is None:
         return None
     if isinstance(value, (date, datetime)):
@@ -82,7 +82,7 @@ def observation_info_rows(
         rows.append(("Individual", individual_code))
     if observation.observer:
         rows.append(("Observer", observation.observer))
-    observed = _format_date(observation.observed_at)
+    observed = format_date(observation.observed_at)
     if observed:
         rows.append(("Date", observed))
     rows.extend(location_rows(observation))

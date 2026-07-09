@@ -34,10 +34,11 @@ from herpetoid.gui.widgets.dynamic_form import DynamicForm
 from herpetoid.gui.widgets.image_viewer import ImageViewer
 from herpetoid.gui.widgets.info_table import (
     InfoTable,
-    location_rows,
-    measurement_rows,
+    format_date,
+    observation_info_rows,
     species_field_definitions,
 )
+from herpetoid.gui.widgets.roi_preview import RoiPreview
 
 _COLUMNS = ["Code", "Name", "Sex", "Status", "Obs.", ""]
 
@@ -112,6 +113,8 @@ class IndividualBrowserScreen(QWidget):
         super().__init__()
         self._state = state
         self._individuals: list[Individual] = []
+        self._individual_observations: list[Observation] = []
+        self._obs_index = 0
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -139,11 +142,42 @@ class IndividualBrowserScreen(QWidget):
         detail = QWidget()
         detail_layout = QVBoxLayout(detail)
         detail_layout.setContentsMargins(6, 0, 0, 0)
+
+        self.individual_header = QLabel()
+        self.individual_header.setStyleSheet("font-size: 15px; font-weight: 700;")
+        detail_layout.addWidget(self.individual_header)
+
         self.viewer = ImageViewer()
         detail_layout.addWidget(self.viewer, 3)
-        detail_layout.addWidget(QLabel("<b>Individual details</b>"))
+
+        # Arrows step through every observation (capture) of the selected individual.
+        nav_row = QHBoxLayout()
+        self.prev_button = QPushButton("◀")
+        self.prev_button.setToolTip("Previous observation of this individual")
+        self.prev_button.setFixedWidth(40)
+        self.prev_button.clicked.connect(lambda: self._step_observation(-1))
+        self.next_button = QPushButton("▶")
+        self.next_button.setToolTip("Next observation of this individual")
+        self.next_button.setFixedWidth(40)
+        self.next_button.clicked.connect(lambda: self._step_observation(1))
+        self.obs_position_label = QLabel()
+        self.obs_position_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        nav_row.addWidget(self.prev_button)
+        nav_row.addWidget(self.obs_position_label, 1)
+        nav_row.addWidget(self.next_button)
+        detail_layout.addLayout(nav_row)
+
+        detail_layout.addWidget(QLabel("<b>Observation details</b>"))
+        data_row = QHBoxLayout()
         self.info_table = InfoTable()
-        detail_layout.addWidget(self.info_table, 2)
+        data_row.addWidget(self.info_table, 1)
+        roi_box = QVBoxLayout()
+        roi_box.addWidget(QLabel("ROI"))
+        self.roi_preview = RoiPreview()
+        roi_box.addWidget(self.roi_preview)  # the ROI crop beside the data for visual comparison
+        roi_box.addStretch(1)
+        data_row.addLayout(roi_box)
+        detail_layout.addLayout(data_row, 2)
         splitter.addWidget(detail)
 
         splitter.setStretchFactor(0, 0)  # table hugs its content
@@ -204,50 +238,72 @@ class IndividualBrowserScreen(QWidget):
         return observations[0] if observations else None
 
     def _on_select(self) -> None:
-        project = self._state.project
         catalog = self._state.catalog
         row = self.table.currentRow()
-        self.info_table.clear_rows()
-        self.viewer.clear()
-        if project is None or catalog is None or not 0 <= row < len(self._individuals):
+        self._individual_observations = []
+        self._obs_index = 0
+        if catalog is None or not 0 <= row < len(self._individuals):
+            self.individual_header.setText("")
+            self._render_observation()
             return
         individual = self._individuals[row]
         if individual.id is None:
             return
+        self._individual_observations = catalog.observations_for_individual(individual.id)
 
-        count = len(catalog.observations_for_individual(individual.id))
-        rows: list[tuple[str, str]] = [("Code", individual.code)]
+        count = len(self._individual_observations)
+        parts = [individual.code]
         if individual.name:
-            rows.append(("Name", individual.name))
-        rows.append(("Sex", str(individual.sex)))
-        rows.append(("Status", str(individual.status)))
-        rows.append(("Observations", str(count)))
-        representative = self._representative_observation(individual)
-        if representative is not None:
-            fields = species_field_definitions(self._state, individual.species_id)
-            rows.extend(location_rows(representative))
-            rows.extend(measurement_rows(representative, fields))
-        if individual.notes:
-            rows.append(("Notes", individual.notes))
-        self.info_table.show_rows(rows)
+            parts.append(individual.name)
+        parts.extend(
+            (str(individual.sex), str(individual.status), f"{count} observation{'' if count == 1 else 's'}")
+        )
+        self.individual_header.setText("  ·  ".join(parts))
+        self._render_observation()
 
-        self._show_image(individual)
+    def _step_observation(self, delta: int) -> None:
+        target = self._obs_index + delta
+        if 0 <= target < len(self._individual_observations):
+            self._obs_index = target
+            self._render_observation()
 
-    def _show_image(self, individual: Individual) -> None:
+    def _update_nav_buttons(self) -> None:
+        count = len(self._individual_observations)
+        self.prev_button.setEnabled(self._obs_index > 0)
+        self.next_button.setEnabled(self._obs_index < count - 1)
+
+    def _render_observation(self) -> None:
+        """Show the current observation of the selected individual: image, ROI, date and details."""
+        self.viewer.clear()
+        self.info_table.clear_rows()
+        self.roi_preview.clear_preview()
+        self._update_nav_buttons()
         project = self._state.project
         catalog = self._state.catalog
-        if project is None or catalog is None or individual.id is None:
+        count = len(self._individual_observations)
+        if count == 0 or project is None or catalog is None:
+            self.obs_position_label.setText("")
             return
-        for observation in catalog.observations_for_individual(individual.id):
-            if observation.id is None:
-                continue
+        self._obs_index = max(0, min(self._obs_index, count - 1))
+        observation = self._individual_observations[self._obs_index]
+        date = format_date(observation.observed_at) or "no date"
+        self.obs_position_label.setText(f"Observation {self._obs_index + 1} of {count}  ·  {date}")
+
+        image = None
+        roi = None
+        if observation.id is not None:
             images = catalog.images_for(observation.id)
             if images:
                 try:
-                    self.viewer.set_image(project.image_store.load(images[0].rel_path))
-                    return
+                    image = project.image_store.load(images[0].rel_path)
+                    self.viewer.set_image(image)
                 except (OSError, ValueError):
-                    pass
+                    image = None
+                if images[0].id is not None:
+                    roi = catalog.get_image_roi(images[0].id)
+        fields = species_field_definitions(self._state, observation.species_id)
+        self.info_table.show_rows(observation_info_rows(observation, fields))
+        self.roi_preview.show_roi(image, roi)
 
     def _edit_individual(self, individual: Individual) -> None:
         catalog = self._state.catalog

@@ -166,6 +166,198 @@ def test_import_refreshes_other_screens(app_state: AppState, tmp_path: Path, qtb
     assert candidates.query_combo.count() == 1
 
 
+def test_import_observer_gating_and_delete(
+    app_state: AppState, tmp_path: Path, qtbot, monkeypatch
+) -> None:
+    from PIL import Image as PilImage
+    from PySide6.QtWidgets import QMessageBox
+
+    from herpetoid.gui.screens.import_images import ImageImportScreen
+
+    app_state.create_project(tmp_path / "proj", "P")
+    screen = ImageImportScreen(app_state)
+    qtbot.addWidget(screen)
+
+    # Add is gated on an observer name so the user can't import without one.
+    assert not screen.add_button.isEnabled()
+    screen.observer_edit.setText("AL")
+    assert screen.add_button.isEnabled()
+
+    a, b = tmp_path / "a.png", tmp_path / "b.png"
+    for path in (a, b):
+        PilImage.fromarray(np.zeros((16, 16, 3), np.uint8)).save(path)
+    assert screen.import_files([a, b]) == 2
+    assert screen.gallery.count() == 2
+    catalog = app_state.catalog
+    assert catalog is not None
+    assert catalog.observation_count() == 2
+
+    # Select all and delete (auto-confirm the dialog); the observations are removed.
+    monkeypatch.setattr(
+        QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes
+    )
+    screen.gallery.selectAll()
+    assert screen.delete_button.isEnabled()
+    screen._delete_selected()
+    assert catalog.observation_count() == 0
+    assert screen.gallery.count() == 0
+
+
+def test_observations_saved_tick_updates_on_save(
+    app_state: AppState, tmp_path: Path, qtbot
+) -> None:
+    from PIL import Image as PilImage
+
+    from herpetoid.api import ROI
+    from herpetoid.domain import PluginRef
+    from herpetoid.gui.screens.observations import ObservationsScreen
+
+    app_state.create_project(tmp_path / "proj", "P")
+    catalog = app_state.catalog
+    assert catalog is not None
+    species = catalog.ensure_species(
+        "Calotriton asper", module=PluginRef("calotriton_asper", "1.0")
+    )
+    assert species.id is not None
+    image = tmp_path / "i.png"
+    PilImage.fromarray(np.full((64, 64, 3), 120, np.uint8)).save(image)
+    catalog.import_observation(species.id, [image])
+
+    screen = ObservationsScreen(app_state)
+    qtbot.addWidget(screen)
+    assert screen.table.item(0, 3).text() == ""  # no ROI marked yet -> no tick (Saved column)
+    screen.viewer.set_roi(ROI.rectangle(5, 5, 40, 40))
+    screen.save()
+    assert screen.table.item(0, 3).text() == "✓"  # tick appears in real time after saving the ROI
+
+
+def test_observations_new_vs_recapture_columns(
+    app_state: AppState, tmp_path: Path, qtbot
+) -> None:
+    from PIL import Image as PilImage
+
+    from herpetoid.api import ROI
+    from herpetoid.domain import PluginRef
+    from herpetoid.gui.screens.observations import ObservationsScreen
+
+    app_state.create_project(tmp_path / "proj", "P")
+    catalog = app_state.catalog
+    assert catalog is not None
+    species = catalog.ensure_species(
+        "Calotriton asper", module=PluginRef("calotriton_asper", "1.0")
+    )
+    assert species.id is not None
+    paths = []
+    for name in ("a.png", "b.png", "c.png"):
+        p = tmp_path / name
+        PilImage.fromarray(np.full((16, 16, 3), 120, np.uint8)).save(p)
+        paths.append(p)
+    first = catalog.import_observation(species.id, [paths[0]])
+    second = catalog.import_observation(species.id, [paths[1]])  # same individual -> recapture
+    catalog.import_observation(species.id, [paths[2]])  # left unidentified
+    individual = catalog.create_individual(species.id, code="CA-001")
+    for obs in (first, second):
+        assert obs.id is not None
+        catalog.link_observation(obs.id, individual.id)
+        img = catalog.images_for(obs.id)[0]
+        assert img.id is not None
+        catalog.set_image_roi(img.id, ROI.rectangle(2, 2, 10, 10))
+    # Only `first` is actually run through identification; `second` is merely linked to an individual.
+    catalog.record_identification(first.id)
+
+    screen = ObservationsScreen(app_state)
+    qtbot.addWidget(screen)
+    by_id = {int(screen.table.item(r, 0).text()): r for r in range(screen.table.rowCount())}
+    # Identified column (4): tick only where identification was actually run (not for a mere link).
+    assert screen.table.item(by_id[first.id], 4).text() == "✓"
+    assert screen.table.item(by_id[second.id], 4).text() == ""
+    # Type column (5): earliest linked observation is New, the later one is a Recapture.
+    assert screen.table.item(by_id[first.id], 5).text() == "New"
+    assert screen.table.item(by_id[second.id], 5).text() == "Recapture"
+
+
+def test_individual_observation_navigation(
+    app_state: AppState, tmp_path: Path, qtbot
+) -> None:
+    from datetime import date
+
+    from PIL import Image as PilImage
+
+    from herpetoid.domain import PluginRef
+    from herpetoid.gui.screens.individuals import IndividualBrowserScreen
+
+    app_state.create_project(tmp_path / "proj", "P")
+    catalog = app_state.catalog
+    assert catalog is not None
+    species = catalog.ensure_species(
+        "Calotriton asper", module=PluginRef("calotriton_asper", "1.0")
+    )
+    assert species.id is not None
+    individual = catalog.create_individual(species.id, code="CA-001")
+    for i, day in enumerate((10, 20)):
+        p = tmp_path / f"obs{i}.png"
+        PilImage.fromarray(np.full((16, 16, 3), 100 + i * 20, np.uint8)).save(p)
+        obs = catalog.import_observation(
+            species.id, [p], observed_at=date(2026, 5, day), observer=f"obs{i}"
+        )
+        assert obs.id is not None
+        catalog.link_observation(obs.id, individual.id)
+
+    screen = IndividualBrowserScreen(app_state)
+    qtbot.addWidget(screen)
+    screen.table.selectRow(0)
+    # Two observations -> Next enabled, Prev disabled; position + date shown.
+    assert "2 observation" in screen.individual_header.text()
+    assert "Observation 1 of 2" in screen.obs_position_label.text()
+    assert "2026-05-10" in screen.obs_position_label.text()
+    assert not screen.prev_button.isEnabled()
+    assert screen.next_button.isEnabled()
+
+    screen._step_observation(1)  # arrow to the second observation
+    assert "Observation 2 of 2" in screen.obs_position_label.text()
+    assert "2026-05-20" in screen.obs_position_label.text()
+    assert screen.prev_button.isEnabled()
+    assert not screen.next_button.isEnabled()
+
+
+def test_query_dropdowns_show_code_without_species(
+    app_state: AppState, tmp_path: Path, qtbot
+) -> None:
+    from PIL import Image as PilImage
+
+    from herpetoid.api import ROI
+    from herpetoid.domain import PluginRef
+    from herpetoid.gui.screens.candidate_ranking import CandidateRankingScreen
+    from herpetoid.gui.screens.comparison import ComparisonScreen
+
+    app_state.create_project(tmp_path / "proj", "P")
+    catalog = app_state.catalog
+    assert catalog is not None
+    species = catalog.ensure_species(
+        "Calotriton asper", module=PluginRef("calotriton_asper", "1.0")
+    )
+    assert species.id is not None
+    image = tmp_path / "i.png"
+    PilImage.fromarray(np.full((64, 64, 3), 120, np.uint8)).save(image)
+    obs = catalog.import_observation(species.id, [image])
+    assert obs.id is not None
+    individual = catalog.create_individual(species.id, code="CA-001")
+    catalog.link_observation(obs.id, individual.id)
+    stored = catalog.images_for(obs.id)[0]
+    assert stored.id is not None
+    catalog.set_image_roi(stored.id, ROI.rectangle(5, 5, 40, 40))
+
+    candidates = CandidateRankingScreen(app_state)
+    qtbot.addWidget(candidates)
+    assert candidates.query_combo.itemText(0) == "CA-001"  # code only, no species in the label
+    assert "Calotriton asper" in candidates.query_species_label.text()
+
+    comparison = ComparisonScreen(app_state)
+    qtbot.addWidget(comparison)
+    assert comparison.obs_a_combo.itemText(0) == "CA-001"
+    assert "Calotriton asper" in comparison.species_label.text()
+
+
 def test_dynamic_form_roundtrip_and_validation(qtbot) -> None:
     from herpetoid.gui.widgets.dynamic_form import DynamicForm
     from herpetoid.plugins.species.calotriton_asper import CalotritonAsperModule
@@ -243,7 +435,7 @@ def test_observations_screen_lists_and_shows_image(
     screen = ObservationsScreen(app_state)
     qtbot.addWidget(screen)
     assert screen.table.rowCount() == 1
-    assert screen.table.item(0, 2).text() == "AL"  # observer column
+    assert screen.table.item(0, 1).text() == "AL"  # observer column
     assert screen.viewer.has_image()  # first row auto-selected, image shown without a click
     screen.table.selectRow(0)
     assert screen.viewer.has_image()
@@ -464,6 +656,59 @@ def test_observation_with_roi_but_no_individual_is_selectable(
     assert "unassigned" in candidates.query_combo.itemText(0)
 
 
+def test_identify_marks_identified_and_shows_roi(
+    app_state: AppState, tmp_path: Path, qtbot
+) -> None:
+    import cv2
+    from PIL import Image as PilImage
+
+    from herpetoid.api import ROI
+    from herpetoid.domain import PluginRef
+    from herpetoid.gui.screens.candidate_ranking import CandidateRankingScreen
+
+    def spots(seed: int, size: int = 256) -> np.ndarray:
+        rng = np.random.default_rng(seed)
+        img = np.full((size, size), 255, np.uint8)
+        for _ in range(40):
+            cx, cy = rng.integers(20, size - 20, size=2)
+            cv2.ellipse(img, (int(cx), int(cy)), (8, 10), 0, 0, 360, 0, -1)
+        return np.stack([img] * 3, axis=-1)
+
+    app_state.create_project(tmp_path / "proj", "P")
+    catalog = app_state.catalog
+    assert catalog is not None
+    species = catalog.ensure_species(
+        "Calotriton asper", module=PluginRef("calotriton_asper", "1.0")
+    )
+    assert species.id is not None
+    query_obs = None
+    for i in range(2):
+        p = tmp_path / f"n{i}.png"
+        PilImage.fromarray(spots(i + 1)).save(p)
+        obs = catalog.import_observation(species.id, [p])
+        assert obs.id is not None
+        ind = catalog.create_individual(species.id, code=f"CA-{i + 1:03d}")
+        catalog.link_observation(obs.id, ind.id)
+        img = catalog.images_for(obs.id)[0]
+        assert img.id is not None
+        catalog.set_image_roi(img.id, ROI.rectangle(20, 20, 216, 216))
+        query_obs = query_obs or obs
+
+    # Before identifying, nothing is marked as run-through-identification.
+    assert catalog.identified_observation_ids() == set()
+
+    screen = CandidateRankingScreen(app_state)
+    qtbot.addWidget(screen)
+    assert query_obs is not None and query_obs.id is not None
+    screen.query_combo.setCurrentIndex(screen.query_combo.findData(query_obs.id))
+    screen.algorithm_combo.setCurrentIndex(screen.algorithm_combo.findData("orb"))
+    screen.identify()
+
+    # The query is now recorded as identified, and its ROI crop is shown beside the data.
+    assert query_obs.id in catalog.identified_observation_ids()
+    assert not screen.query_roi.pixmap().isNull()
+
+
 def test_candidate_ranking_identify_and_confirm(app_state: AppState, tmp_path: Path, qtbot) -> None:
     import cv2
     from PIL import Image as PilImage
@@ -656,7 +901,9 @@ def test_individual_browser(app_state: AppState, tmp_path: Path, qtbot) -> None:
     assert species.id is not None
     image = tmp_path / "i.png"
     PilImage.fromarray(np.full((16, 16, 3), 100, np.uint8)).save(image)
-    observation = catalog.import_observation(species.id, [image])
+    observation = catalog.import_observation(
+        species.id, [image], observer="AL", measurements={"svl": 40.0}
+    )
     individual = catalog.create_individual(species.id, code="CA-001")
     assert observation.id is not None
     catalog.link_observation(observation.id, individual.id)
@@ -666,8 +913,9 @@ def test_individual_browser(app_state: AppState, tmp_path: Path, qtbot) -> None:
     assert screen.table.rowCount() == 1
     assert screen.table.item(0, 0).text() == "CA-001"
     assert screen.table.item(0, 4).text() == "1"  # one linked observation (Obs. column)
+    assert "CA-001" in screen.individual_header.text()  # individual header shows the code
     assert screen.viewer.has_image()
-    assert screen.info_table.rowCount() > 0  # species-driven details panel is populated
+    assert screen.info_table.rowCount() > 0  # the observation's details panel is populated
 
 
 def test_individual_editor_updates_code_and_measurements(
