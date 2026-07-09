@@ -15,7 +15,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from herpetoid.api import ROI, FeatureSet, SpeciesModule
+from herpetoid.api import ROI, ComparisonResult, FeatureSet, Sample, SpeciesModule
 from herpetoid.domain import Image, Individual, Observation, Species
 
 from .catalog_service import CatalogService
@@ -32,6 +32,15 @@ class Candidate:
     score: float
     normalized_score: float
     rank: int
+
+
+@dataclass(slots=True)
+class PairwiseComparison:
+    """A direct one-vs-one comparison of two observations, for the Comparison window."""
+
+    query_sample: Sample  # preprocessed (normalized, cropped) pattern of observation A
+    target_sample: Sample  # preprocessed pattern of observation B
+    result: ComparisonResult
 
 
 class IdentificationRunner:
@@ -109,6 +118,30 @@ class IdentificationRunner:
                 )
             )
         return candidates
+
+    def compare(
+        self, observation_a_id: int, observation_b_id: int, algorithm_id: str
+    ) -> PairwiseComparison | None:
+        """Directly compare two observations with the chosen algorithm (no ranking)."""
+        obs_a = self._catalog.get_observation(observation_a_id)
+        obs_b = self._catalog.get_observation(observation_b_id)
+        if obs_a is None or obs_b is None or obs_a.id is None or obs_b.id is None:
+            return None
+        module = self._module_for(self._catalog.get_species(obs_a.species_id))
+        if module is None:
+            return None
+        image_a = self._first_image(obs_a.id)
+        image_b = self._first_image(obs_b.id)
+        if image_a is None or image_b is None:
+            return None
+
+        algorithm = self._registry.create_algorithm(algorithm_id)
+        sample_a = module.preprocess(self._load(image_a), self._roi_for(image_a))
+        sample_b = module.preprocess(self._load(image_b), self._roi_for(image_b))
+        features_a = algorithm.extract_features(sample_a)
+        features_b = algorithm.extract_features(sample_b)
+        result = algorithm.compare(features_a, features_b)
+        return PairwiseComparison(query_sample=sample_a, target_sample=sample_b, result=result)
 
     def _module_for(self, species: Species | None) -> SpeciesModule | None:
         if species is None or species.module is None:

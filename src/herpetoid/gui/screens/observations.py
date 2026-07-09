@@ -77,14 +77,21 @@ class ObservationsScreen(QWidget):
         right_layout = QVBoxLayout(right)
         right_layout.setContentsMargins(6, 0, 0, 0)
 
+        # A vertical splitter lets the user drag the image window larger for precise point placement.
+        editor_splitter = QSplitter(Qt.Orientation.Vertical)
+
+        image_area = QWidget()
+        image_layout = QVBoxLayout(image_area)
+        image_layout.setContentsMargins(0, 0, 0, 0)
+
         self.viewer = RoiImageViewer()
         self.viewer.roi_changed.connect(self._update_preview)
-        right_layout.addWidget(self.viewer, 3)
+        image_layout.addWidget(self.viewer, 1)
 
         self.guidance_label = QLabel()
         self.guidance_label.setWordWrap(True)
         self.guidance_label.setStyleSheet("color: gray;")
-        right_layout.addWidget(self.guidance_label)
+        image_layout.addWidget(self.guidance_label)
 
         controls_and_preview = QHBoxLayout()
         controls = QVBoxLayout()
@@ -132,7 +139,8 @@ class ObservationsScreen(QWidget):
         self.preview_label.setFrameShape(QFrame.Shape.StyledPanel)
         preview_layout.addWidget(self.preview_label)
         controls_and_preview.addWidget(preview_group)
-        right_layout.addLayout(controls_and_preview)
+        image_layout.addLayout(controls_and_preview)
+        editor_splitter.addWidget(image_area)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -166,19 +174,26 @@ class ObservationsScreen(QWidget):
         self._form_layout.addWidget(self._form_container)
         self._form_layout.addStretch(1)
         scroll.setWidget(form_host)
-        right_layout.addWidget(scroll, 4)
+        editor_splitter.addWidget(scroll)
+        editor_splitter.setStretchFactor(0, 1)
+        editor_splitter.setStretchFactor(1, 0)
+        editor_splitter.setSizes([620, 260])
+        right_layout.addWidget(editor_splitter, 1)
 
         bottom = QHBoxLayout()
         self.status_label = QLabel()
         bottom.addWidget(self.status_label)
         bottom.addStretch(1)
         self.save_button = QPushButton("Save observation")
+        self.save_button.setObjectName("primary")
         self.save_button.clicked.connect(self.save)
         bottom.addWidget(self.save_button)
         right_layout.addLayout(bottom)
 
         splitter.addWidget(right)
-        splitter.setSizes([380, 720])
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+        splitter.setSizes([300, 980])
         layout.addWidget(splitter)
 
         self._set_editing_enabled(False)

@@ -12,12 +12,12 @@ from PySide6.QtWidgets import (
 )
 
 from .screens.candidate_ranking import CandidateRankingScreen
+from .screens.comparison import ComparisonScreen
 from .screens.help import HelpScreen
 from .screens.home import HomeScreen
 from .screens.import_images import ImageImportScreen
 from .screens.individuals import IndividualBrowserScreen
 from .screens.observations import ObservationsScreen
-from .screens.placeholder import PlaceholderScreen
 from .screens.plugins import PluginManagerScreen
 from .screens.projects import ProjectManagerScreen
 from .screens.settings import SettingsScreen
@@ -30,10 +30,10 @@ class MainWindow(QMainWindow):
         super().__init__()
         self._state = state
         self.setWindowTitle("HerpetoID")
-        self.resize(1100, 720)
+        self.resize(1280, 820)
 
         self._nav = QListWidget()
-        self._nav.setFixedWidth(190)
+        self._nav.setFixedWidth(200)
         self._nav.setObjectName("navigation")
         self._stack = QStackedWidget()
 
@@ -43,7 +43,7 @@ class MainWindow(QMainWindow):
         self._add_screen("Observations", ObservationsScreen(state))
         self._add_screen("Individuals", IndividualBrowserScreen(state))
         self._add_screen("Candidates", CandidateRankingScreen(state))
-        self._add_screen("Comparison", PlaceholderScreen("Comparison Window"))
+        self._add_screen("Comparison", ComparisonScreen(state))
         self._add_screen("Statistics", StatisticsScreen(state))
         self._add_screen("Plugins", PluginManagerScreen(state.registry))
         self._add_screen("Settings", SettingsScreen(state))

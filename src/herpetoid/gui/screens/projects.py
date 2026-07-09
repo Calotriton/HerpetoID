@@ -28,8 +28,13 @@ class ProjectManagerScreen(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
 
+        title = QLabel("Projects")
+        title.setStyleSheet("font-size: 18px; font-weight: 700;")
+        layout.addWidget(title)
+
         buttons = QHBoxLayout()
         new_button = QPushButton("New Project…")
+        new_button.setObjectName("primary")
         new_button.clicked.connect(self._new_project)
         open_button = QPushButton("Open Project…")
         open_button.clicked.connect(self._open_project)
@@ -42,8 +47,14 @@ class ProjectManagerScreen(QWidget):
         self.current_label.setStyleSheet("margin-top: 8px;")
         layout.addWidget(self.current_label)
 
-        layout.addWidget(QLabel("<b>Recent projects</b>"))
+        recent_header = QLabel("<b>Recent projects</b>")
+        layout.addWidget(recent_header)
+        hint = QLabel("Double-click a project (or select it and press Enter) to open it.")
+        hint.setStyleSheet("color: palette(mid); font-size: 12px;")
+        layout.addWidget(hint)
         self.recent_list = QListWidget()
+        # itemActivated fires on double-click and on Enter, so both open the selected project.
+        self.recent_list.itemActivated.connect(self._open_recent)
         self.recent_list.itemDoubleClicked.connect(self._open_recent)
         layout.addWidget(self.recent_list, 1)
 
@@ -85,6 +96,9 @@ class ProjectManagerScreen(QWidget):
         self._open_path(Path(item.text()))
 
     def _open_path(self, path: Path) -> None:
+        current = self._state.project
+        if current is not None and Path(current.path) == path:
+            return  # already open (guards against double-click firing two signals)
         try:
             self._state.open_project(path)
         except (FileNotFoundError, ValueError) as exc:

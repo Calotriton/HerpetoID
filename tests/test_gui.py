@@ -392,6 +392,67 @@ def test_candidate_ranking_identify_and_confirm(app_state: AppState, tmp_path: P
     assert catalog.individual_count() == 1
 
 
+def test_comparison_screen_compares_two_observations(
+    app_state: AppState, tmp_path: Path, qtbot
+) -> None:
+    import cv2
+    from PIL import Image as PilImage
+
+    from herpetoid.domain import PluginRef
+    from herpetoid.gui.screens.comparison import ComparisonScreen
+
+    def spots(seed: int, size: int = 256, count: int = 45) -> np.ndarray:
+        rng = np.random.default_rng(seed)
+        img = np.full((size, size), 255, np.uint8)
+        for _ in range(count):
+            cx, cy = rng.integers(20, size - 20, size=2)
+            ax, ay = rng.integers(5, 15, size=2)
+            cv2.ellipse(img, (int(cx), int(cy)), (int(ax), int(ay)), 0, 0, 360, 0, -1)
+        return img
+
+    def save(path: Path, gray: np.ndarray) -> None:
+        PilImage.fromarray(np.stack([gray, gray, gray], axis=-1)).save(path)
+
+    cv2.setRNGSeed(3)
+    app_state.create_project(tmp_path / "proj", "P")
+    catalog = app_state.catalog
+    assert catalog is not None
+    species = catalog.ensure_species(
+        "Calotriton asper", module=PluginRef("calotriton_asper", "1.0")
+    )
+    assert species.id is not None
+    base = spots(1)
+    pa, pb = tmp_path / "a.png", tmp_path / "b.png"
+    save(pa, base)
+    save(pb, base)  # identical -> should match strongly
+    obs_a = catalog.import_observation(species.id, [pa])
+    obs_b = catalog.import_observation(species.id, [pb])
+
+    screen = ComparisonScreen(app_state)
+    qtbot.addWidget(screen)
+    assert screen.obs_a_combo.count() == 2
+    screen.obs_a_combo.setCurrentIndex(screen.obs_a_combo.findData(obs_a.id))
+    screen.obs_b_combo.setCurrentIndex(screen.obs_b_combo.findData(obs_b.id))
+    screen.algorithm_combo.setCurrentIndex(screen.algorithm_combo.findData("orb"))
+    screen.compare()
+
+    assert screen._comparison is not None
+    assert screen._comparison.result.inliers > 0  # identical patterns produce inlier matches
+    assert screen.viewer.has_image()  # the side-by-side composite is shown
+
+
+def test_build_match_composite_dimensions() -> None:
+    from herpetoid.gui.screens.comparison import build_match_composite
+
+    left = np.zeros((40, 30), np.uint8)
+    right = np.zeros((50, 20), np.uint8)
+    corr = np.array([[5, 5, 4, 4], [10, 20, 8, 18]], float)
+    composite = build_match_composite(left, right, corr)
+    assert composite.shape[0] == 50  # max height
+    assert composite.shape[2] == 3  # RGB
+    assert composite.shape[1] == 30 + 24 + 20  # left + gap + right
+
+
 def test_individual_browser(app_state: AppState, tmp_path: Path, qtbot) -> None:
     from PIL import Image as PilImage
 
