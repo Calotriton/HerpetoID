@@ -36,6 +36,10 @@ class AppState(QObject):
         super().__init__()
         self.registry = registry
         self.settings = settings
+        # Session-wide defaults picked in the main-window toolbar; screens pre-select them on
+        # refresh but keep their own combos as the actual inputs (no double source of truth).
+        self.default_algorithm_id: str | None = None
+        self.default_module_id: str | None = None
         self.identification = IdentificationService()
         self.statistics = StatisticsService()
         self.export = ExportService(default_exporters())

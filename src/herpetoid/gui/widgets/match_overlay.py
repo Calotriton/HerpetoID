@@ -1,10 +1,9 @@
-"""Comparison window: a direct one-vs-one comparison of any two observations.
+"""Match-evidence rendering shared by the identification views.
 
-Where *Candidates* ranks the whole catalog against a query, this screen answers a focused question:
-"are these two the same individual?" It preprocesses both patterns, runs the chosen algorithm and shows
-the two normalized ventral patterns side by side with the matched spots joined by lines — the visual
-evidence the scientist uses to make the final call. The match overlay is adjustable (hide it, fade it,
-or show only the strongest N lines) so a human can inspect the patterns underneath.
+``build_match_composite`` lays two normalized patterns side by side with the matched spots joined by
+colored lines. :class:`MatchOverlayViewer` wraps that composite in a self-contained widget: a result
+panel (similarity % + verdict), the overlay controls (hide lines/points, limit N, opacity) and the
+image viewer, re-rendering overlay tweaks without re-running the match and preserving the zoom.
 """
 
 from __future__ import annotations
@@ -13,19 +12,16 @@ import numpy as np
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
-    QComboBox,
     QFrame,
     QHBoxLayout,
     QLabel,
-    QPushButton,
     QSlider,
     QSpinBox,
     QVBoxLayout,
     QWidget,
 )
 
-from herpetoid.application.identification_runner import IdentificationRunner, PairwiseComparison
-from herpetoid.gui.state import AppState
+from herpetoid.application.identification_runner import PairwiseComparison
 from herpetoid.gui.widgets.image_viewer import ImageViewer
 
 _GAP = 24  # pixels between the two patterns in the composite
@@ -109,63 +105,21 @@ def build_match_composite(
     return cv2.addWeighted(overlay, alpha, base, 1.0 - alpha, 0.0)
 
 
-class ComparisonScreen(QWidget):
-    def __init__(self, state: AppState) -> None:
+class MatchOverlayViewer(QWidget):
+    """Result panel + overlay controls + composite viewer for one pairwise comparison."""
+
+    def __init__(self) -> None:
         super().__init__()
-        self._state = state
         self._comparison: PairwiseComparison | None = None
-        self._species_names: dict[int | None, str] = {}
-        self._species_by_obs: dict[int | None, str] = {}
         self._composite_shape: tuple[int, ...] | None = None
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(10)
-
-        title = QLabel("Compare two observations")
-        title.setStyleSheet("font-size: 18px; font-weight: 700;")
-        layout.addWidget(title)
-
-        controls = QHBoxLayout()
-        controls.addWidget(QLabel("A:"))
-        self.obs_a_combo = QComboBox()
-        self.obs_a_combo.setMinimumWidth(140)
-        controls.addWidget(self.obs_a_combo)
-        controls.addWidget(QLabel("B:"))
-        self.obs_b_combo = QComboBox()
-        self.obs_b_combo.setMinimumWidth(140)
-        controls.addWidget(self.obs_b_combo)
-        controls.addWidget(QLabel("Algorithm"))
-        self.algorithm_combo = QComboBox()
-        controls.addWidget(self.algorithm_combo)
-        self.compare_button = QPushButton("Compare")
-        self.compare_button.setObjectName("primary")
-        self.compare_button.clicked.connect(self.compare)
-        controls.addWidget(self.compare_button)
-        controls.addStretch(1)
-        self.species_label = QLabel()
-        self.species_label.setStyleSheet("color: palette(mid);")
-        controls.addWidget(self.species_label)
-        layout.addLayout(controls)
-        self.obs_a_combo.currentIndexChanged.connect(self._update_species_label)
-        self.obs_b_combo.currentIndexChanged.connect(self._update_species_label)
-
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
         layout.addWidget(self._build_result_panel())
         layout.addWidget(self._build_overlay_controls())
-
         self.viewer = ImageViewer()
         layout.addWidget(self.viewer, 1)
-
-        hint = QLabel(
-            "Each line joins a matched pattern feature. Many consistent lines suggest the same "
-            "individual; few or scattered lines suggest different individuals."
-        )
-        hint.setWordWrap(True)
-        hint.setStyleSheet("color: palette(mid); font-size: 12px;")
-        layout.addWidget(hint)
-
-        state.project_changed.connect(self._refresh)
-        self._refresh()
 
     # -- construction helpers --------------------------------------------------------------------
     def _build_result_panel(self) -> QWidget:
@@ -193,7 +147,7 @@ class ComparisonScreen(QWidget):
         panel_layout.addWidget(self.verdict_label)
         panel_layout.addStretch(1)
 
-        self.detail_label = QLabel("Pick two observations and press Compare.")
+        self.detail_label = QLabel("")
         self.detail_label.setStyleSheet("color: palette(mid);")
         self.detail_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         panel_layout.addWidget(self.detail_label)
@@ -240,107 +194,41 @@ class ComparisonScreen(QWidget):
         self._set_overlay_controls_enabled(False)
         return row
 
-    # -- state -----------------------------------------------------------------------------------
-    def _refresh(self) -> None:
-        self._comparison = None
-        self._composite_shape = None
-        self.viewer.clear()
-        self._reset_result_panel()
-        self._set_overlay_controls_enabled(False)
-        self._populate_observations()
-        self._populate_algorithms()
-        has_pair = self.obs_a_combo.count() >= 2
-        for widget in (self.obs_a_combo, self.obs_b_combo, self.algorithm_combo):
-            widget.setEnabled(self._state.project is not None)
-        self.compare_button.setEnabled(has_pair)
-        if self._state.project is None:
-            self.detail_label.setText("Open a project first.")
-        elif not has_pair:
-            self.detail_label.setText(
-                "Need at least two observations with a marked ROI (Observations tab) to compare."
-            )
-        else:
-            self.detail_label.setText("Pick two observations and press Compare.")
-            if self.obs_b_combo.count() >= 2:
-                self.obs_b_combo.setCurrentIndex(1)  # default to a different second observation
-        self._update_species_label()
-
-    def _populate_observations(self) -> None:
-        self.obs_a_combo.clear()
-        self.obs_b_combo.clear()
-        catalog = self._state.catalog
-        if catalog is None:
-            return
-        self._species_names = {s.id: s.scientific_name for s in catalog.list_species()}
-        self._species_by_obs = {}
-        codes = {i.id: i.code for i in catalog.list_individuals()}
-        # The dropdowns show just the code; the species is shown once beside the controls.
-        for obs in catalog.comparable_observations():
-            code = codes.get(obs.individual_id) if obs.individual_id else None
-            label = code if code else f"Obs {obs.id} (unassigned)"
-            self.obs_a_combo.addItem(label, obs.id)
-            self.obs_b_combo.addItem(label, obs.id)
-            self._species_by_obs[obs.id] = self._species_names.get(obs.species_id, "")
-
-    def _update_species_label(self) -> None:
-        a_species = self._species_by_obs.get(self.obs_a_combo.currentData(), "")
-        b_species = self._species_by_obs.get(self.obs_b_combo.currentData(), "")
-        if a_species and a_species == b_species:
-            self.species_label.setText(f"Species: {a_species}")
-        elif a_species or b_species:
-            self.species_label.setText(f"Species: A {a_species or '—'} · B {b_species or '—'}")
-        else:
-            self.species_label.setText("")
-
-    def _populate_algorithms(self) -> None:
-        self.algorithm_combo.clear()
-        for record in self._state.registry.algorithms(enabled_only=True):
-            self.algorithm_combo.addItem(record.descriptor.name, record.descriptor.algorithm_id)
-
-    def compare(self) -> None:
-        project = self._state.project
-        a_id = self.obs_a_combo.currentData()
-        b_id = self.obs_b_combo.currentData()
-        algorithm_id = self.algorithm_combo.currentData()
-        if project is None or a_id is None or b_id is None or algorithm_id is None:
-            return
-        if a_id == b_id:
-            self._reset_result_panel()
-            self.detail_label.setText("Pick two different observations.")
-            self.viewer.clear()
-            self._set_overlay_controls_enabled(False)
-            return
-
-        runner = IdentificationRunner(project, self._state.registry, self._state.identification)
-        try:
-            comparison = runner.compare(int(a_id), int(b_id), str(algorithm_id))
-        except Exception as exc:  # surface any plugin failure without crashing
-            self.detail_label.setText(f"Comparison failed: {exc}")
-            return
-        if comparison is None:
-            self._reset_result_panel()
-            self.detail_label.setText("Could not compare these observations.")
-            self.viewer.clear()
-            self._set_overlay_controls_enabled(False)
-            return
-
+    # -- public API --------------------------------------------------------------------------------
+    def show_comparison(self, comparison: PairwiseComparison) -> None:
         self._comparison = comparison
         self._composite_shape = None
         self._update_result_panel(comparison)
-        total = self._match_count(comparison)
-        has_matches = total > 0
-        self._set_overlay_controls_enabled(has_matches)
+        total = self.match_count(comparison)
+        self._set_overlay_controls_enabled(total > 0)
         self.count_spin.blockSignals(True)
         self.count_spin.setRange(0, total)
         self.count_spin.setValue(total)  # show all matches by default
         self.count_spin.blockSignals(False)
         self._render_composite()
 
-    # -- rendering -------------------------------------------------------------------------------
-    def _match_count(self, comparison: PairwiseComparison) -> int:
+    def clear(self) -> None:
+        self._comparison = None
+        self._composite_shape = None
+        self.viewer.clear()
+        self.score_label.setText("—")
+        self.score_label.setStyleSheet("font-size: 34px; font-weight: 800;")
+        self.verdict_label.setText("")
+        self.detail_label.setText("")
+        self._set_overlay_controls_enabled(False)
+
+    def set_status(self, text: str) -> None:
+        self.detail_label.setText(text)
+
+    def comparison(self) -> PairwiseComparison | None:
+        return self._comparison
+
+    @staticmethod
+    def match_count(comparison: PairwiseComparison) -> int:
         corr = comparison.result.correspondences
         return 0 if corr is None else len(corr)
 
+    # -- rendering ---------------------------------------------------------------------------------
     def _render_composite(self) -> None:
         comparison = self._comparison
         if comparison is None:
@@ -362,13 +250,6 @@ class ComparisonScreen(QWidget):
             self.viewer.setTransform(transform)
         self._composite_shape = composite.shape
 
-    # -- result panel ----------------------------------------------------------------------------
-    def _reset_result_panel(self) -> None:
-        self.score_label.setText("—")
-        self.score_label.setStyleSheet("font-size: 34px; font-weight: 800;")
-        self.verdict_label.setText("")
-        self.detail_label.setText("")
-
     def _update_result_panel(self, comparison: PairwiseComparison) -> None:
         result = comparison.result
         score = float(result.normalized_score)
@@ -387,7 +268,6 @@ class ComparisonScreen(QWidget):
             f"{result.inliers} inlier matches of {good} good\ninlier ratio {result.inlier_ratio:.2f}"
         )
 
-    # -- helpers ---------------------------------------------------------------------------------
     def _set_overlay_controls_enabled(self, enabled: bool) -> None:
         for widget in self._overlay_controls:
             widget.setEnabled(enabled)

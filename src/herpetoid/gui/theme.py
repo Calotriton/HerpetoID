@@ -90,26 +90,111 @@ def _stylesheet(c: dict[str, str]) -> str:
         color: {c["text"]};
     }}
 
-    /* --- Navigation sidebar --- */
-    QListWidget#navigation {{
+    /* --- Shell chrome: menu bar, toolbar, tabs, docks --- */
+    QMenuBar {{
         background: {c["nav_bg"]};
-        border: none;
-        outline: 0;
-        padding: 10px 8px;
-    }}
-    QListWidget#navigation::item {{
-        padding: 9px 12px;
-        margin: 2px 0;
-        border-radius: 8px;
-        color: {c["muted"]};
-    }}
-    QListWidget#navigation::item:hover {{
-        background: {c["hover"]};
         color: {c["text"]};
+        border: none;
+        padding: 2px 6px;
     }}
-    QListWidget#navigation::item:selected {{
+    QMenuBar::item {{
+        padding: 5px 10px;
+        border-radius: 6px;
+        background: transparent;
+    }}
+    QMenuBar::item:selected {{
+        background: {c["hover"]};
+    }}
+    QMenuBar::item:pressed {{
         background: {_ACCENT};
         color: white;
+    }}
+    QMenu {{
+        background: {c["surface"]};
+        color: {c["text"]};
+        border: 1px solid {c["border"]};
+        border-radius: 8px;
+        padding: 6px;
+    }}
+    QMenu::item {{
+        padding: 6px 26px 6px 14px;
+        border-radius: 6px;
+    }}
+    QMenu::item:selected {{
+        background: {_ACCENT};
+        color: white;
+    }}
+    QMenu::item:disabled {{
+        color: {c["muted"]};
+    }}
+    QMenu::separator {{
+        height: 1px;
+        background: {c["border"]};
+        margin: 5px 8px;
+    }}
+    QToolBar {{
+        background: {c["nav_bg"]};
+        border: none;
+        border-bottom: 1px solid {c["border"]};
+        padding: 4px 6px;
+        spacing: 2px;
+    }}
+    QToolBar::separator {{
+        background: {c["border"]};
+        width: 1px;
+        margin: 6px 6px;
+    }}
+    QToolButton {{
+        background: transparent;
+        color: {c["text"]};
+        border: none;
+        border-radius: 7px;
+        padding: 5px 8px;
+    }}
+    QToolButton:hover {{
+        background: {c["hover"]};
+    }}
+    QToolButton:pressed, QToolButton:checked {{
+        background: {_ACCENT};
+        color: white;
+    }}
+    QToolButton:disabled {{
+        color: {c["muted"]};
+    }}
+    QTabWidget::pane {{
+        border: none;
+        border-top: 1px solid {c["border"]};
+    }}
+    QTabBar {{
+        background: transparent;
+    }}
+    QTabBar::tab {{
+        background: transparent;
+        color: {c["muted"]};
+        padding: 8px 18px;
+        margin: 0 2px;
+        border: none;
+        border-bottom: 2px solid transparent;
+    }}
+    QTabBar::tab:hover {{
+        color: {c["text"]};
+        background: {c["hover"]};
+    }}
+    QTabBar::tab:selected {{
+        color: {c["text"]};
+        border-bottom: 2px solid {_ACCENT};
+        font-weight: 600;
+    }}
+    QDockWidget {{
+        color: {c["muted"]};
+        titlebar-close-icon: none;
+        titlebar-normal-icon: none;
+    }}
+    QDockWidget::title {{
+        background: {c["nav_bg"]};
+        padding: 7px 10px;
+        text-align: left;
+        font-weight: 600;
     }}
 
     /* --- Buttons --- */
@@ -180,6 +265,13 @@ def _stylesheet(c: dict[str, str]) -> str:
     QTableWidget::item:selected, QListWidget::item:selected {{
         background: {_ACCENT};
         color: white;
+    }}
+    /* Match cards carry their own colored score/detail text — select with a border, not a fill. */
+    QListWidget#matchCards::item:selected {{
+        background: {c["hover"]};
+        color: {c["text"]};
+        border: 1px solid {_ACCENT};
+        border-radius: 8px;
     }}
     QHeaderView::section {{
         background: {c["surface"]};

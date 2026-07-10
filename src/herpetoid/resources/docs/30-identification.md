@@ -1,12 +1,23 @@
 # Identification
 
-The **Candidates** tab is where you match a query observation against the rest of the catalog.
+The **Identification** tab is where you match a query observation against the rest of the catalog.
+It has two modes, switched with the buttons at the top left:
+
+## Identify mode
 
 1. Select a **query observation** and an **algorithm** (e.g. ORB).
 2. Click **Identify**. HerpetoID preprocesses the images, extracts features, and ranks the other
    observations of the same species by similarity.
-3. The ranked candidates appear in the table with a **similarity score** (1.0 = most similar). Select a
-   candidate to compare it with the query **side by side**.
+3. The ranked candidates appear as **Top matches** cards — each with its **similarity score**
+   (1.0 = most similar) and the ROI crop. Select a card to see the **match evidence**: the two
+   normalized patterns side by side with the matched spots joined by colored lines, plus inlier
+   counts. Use the overlay controls to hide lines/points, limit how many are drawn, or fade them.
+4. Click **Show more candidates** to extend the ranking further down the catalog.
+
+## Compare A/B mode
+
+Answers the focused one-vs-one question: "are these two captures the same individual?" Pick two
+observations and press **Compare** to see the same match-evidence view for that single pair.
 
 ## Making a decision
 

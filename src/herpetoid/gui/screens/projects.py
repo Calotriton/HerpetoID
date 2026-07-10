@@ -5,19 +5,17 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtWidgets import (
-    QFileDialog,
     QHBoxLayout,
-    QInputDialog,
     QLabel,
     QListWidget,
     QListWidgetItem,
-    QMessageBox,
     QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
 from herpetoid.application.project_service import ProjectService
+from herpetoid.gui.project_actions import new_project, open_project_dialog, open_project_path
 from herpetoid.gui.state import AppState
 
 
@@ -79,32 +77,10 @@ class ProjectManagerScreen(QWidget):
             self.recent_list.addItem(QListWidgetItem(path))
 
     def _new_project(self) -> None:
-        directory = QFileDialog.getExistingDirectory(
-            self, "Choose an empty folder for the new project"
-        )
-        if not directory:
-            return
-        name, accepted = QInputDialog.getText(self, "New Project", "Project name:")
-        if not accepted or not name.strip():
-            return
-        try:
-            self._state.create_project(Path(directory), name.strip())
-        except (FileExistsError, OSError) as exc:
-            QMessageBox.warning(self, "Could not create project", str(exc))
+        new_project(self, self._state)
 
     def _open_project(self) -> None:
-        directory = QFileDialog.getExistingDirectory(self, "Open project folder")
-        if directory:
-            self._open_path(Path(directory))
+        open_project_dialog(self, self._state)
 
     def _open_recent(self, item: QListWidgetItem) -> None:
-        self._open_path(Path(item.text()))
-
-    def _open_path(self, path: Path) -> None:
-        current = self._state.project
-        if current is not None and Path(current.path) == path:
-            return  # already open (guards against double-click firing two signals)
-        try:
-            self._state.open_project(path)
-        except (FileNotFoundError, ValueError) as exc:
-            QMessageBox.warning(self, "Could not open project", str(exc))
+        open_project_path(self, self._state, Path(item.text()))

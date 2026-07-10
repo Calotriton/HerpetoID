@@ -55,15 +55,107 @@ def test_image_viewer_set_and_zoom(qtbot) -> None:
 
 
 def test_main_window_navigation(app_state: AppState, qtbot) -> None:
+    from herpetoid.gui.screens.identification import IdentificationScreen
+
     window = MainWindow(app_state)
     qtbot.addWidget(window)
-    names = window.screen_names()
-    assert "Home" in names
-    assert "Projects" in names
-    assert len(names) == 11
-    assert window.current_screen_name() == "Home"
+    assert window.screen_names() == [
+        "Dashboard",
+        "Observations",
+        "Individuals",
+        "Identification",
+        "Statistics",
+    ]
+    assert window.current_screen_name() == "Dashboard"
+    window.navigate_to("Observations")
+    assert window.current_screen_name() == "Observations"
+
+    # Legacy names still work: Home -> Dashboard tab; Candidates/Comparison -> the merged
+    # Identification tab in the right mode; secondary screens open as dialogs (tab unchanged).
+    window.navigate_to("Home")
+    assert window.current_screen_name() == "Dashboard"
+    window.navigate_to("Comparison")
+    assert window.current_screen_name() == "Identification"
+    assert window.find_screen(IdentificationScreen).mode() == "compare"
+    window.navigate_to("Candidates")
+    assert window.find_screen(IdentificationScreen).mode() == "identify"
     window.navigate_to("Plugins")
-    assert window.current_screen_name() == "Plugins"
+    assert window.current_screen_name() == "Identification"  # dialogs don't switch tabs
+    assert isinstance(window.open_dialog("Plugins"), PluginManagerScreen)
+
+
+def test_main_window_menus_toolbar_and_dialogs(
+    app_state: AppState, tmp_path: Path, qtbot
+) -> None:
+    from herpetoid.gui.screens.identification import IdentificationScreen
+    from herpetoid.gui.screens.import_images import ImageImportScreen
+    from herpetoid.gui.screens.settings import SettingsScreen
+
+    window = MainWindow(app_state)
+    qtbot.addWidget(window)
+
+    menus = [a.text().replace("&", "") for a in window.menuBar().actions()]
+    assert menus == ["File", "Project", "View", "Tools", "Plugins", "Help"]
+
+    # Dialogs host the secondary screens and are cached (same instance on re-open).
+    settings_screen = window.open_dialog("Settings")
+    assert isinstance(settings_screen, SettingsScreen)
+    assert window.open_dialog("Settings") is settings_screen
+    assert isinstance(window.open_dialog("Import"), ImageImportScreen)
+    assert isinstance(window.open_dialog("Projects"), ProjectManagerScreen)
+
+    # Project-dependent actions are disabled without a project and enabled with one.
+    assert not window._import_action.isEnabled()
+    app_state.create_project(tmp_path / "proj", "P")
+    assert window._import_action.isEnabled()
+    assert window._identify_action.isEnabled()
+
+    # The Recent Projects submenu lists the (still-existing) bundle.
+    window._rebuild_recent_menu()
+    recent_texts = [a.text() for a in window._recent_menu.actions()]
+    assert any("proj" in t for t in recent_texts)
+
+    # The toolbar's global combos publish session defaults that screens pre-select on refresh.
+    assert window.algorithm_combo.count() >= 1
+    assert window.species_combo.count() >= 1
+    assert app_state.default_algorithm_id == window.algorithm_combo.currentData()
+    identification = window.find_screen(IdentificationScreen)
+    assert isinstance(identification, IdentificationScreen)
+    assert identification.algorithm_combo.currentData() == app_state.default_algorithm_id
+
+    # Close Project via state clears the window title back to the default.
+    app_state.close_project()
+    assert window.windowTitle() == "HerpetoID"
+    assert not window._import_action.isEnabled()
+
+
+def test_main_window_dock_and_theme_action(app_state: AppState, tmp_path: Path, qtbot) -> None:
+    window = MainWindow(app_state)
+    qtbot.addWidget(window)
+
+    assert "No project open" in window._dock.tree.topLevelItem(0).text(0)
+    app_state.create_project(tmp_path / "proj", "DockStudy")
+    root = window._dock.tree.topLevelItem(0)
+    assert root.text(0) == "DockStudy"
+    children = [root.child(i).text(0) for i in range(root.childCount())]
+    assert "Observations (0)" in children
+    assert "Individuals (0)" in children
+    assert "Individuals: 0" in window._dock.stats_label.text()
+
+    # The View menu's toggle action hides/shows the dock (needs a shown window to have effect).
+    window.show()
+    toggle = window._dock.toggleViewAction()
+    assert window._dock.isVisible()
+    toggle.trigger()
+    assert not window._dock.isVisible()
+    toggle.trigger()
+    assert window._dock.isVisible()
+
+    # The theme menu action persists the choice in settings.
+    window._set_theme("dark")
+    assert app_state.settings.settings.theme == "dark"
+    window._set_theme("light")
+    assert app_state.settings.settings.theme == "light"
 
 
 def test_plugin_manager_shows_registered_plugins(app_state: AppState, qtbot) -> None:
@@ -126,13 +218,13 @@ def test_import_refreshes_other_screens(app_state: AppState, tmp_path: Path, qtb
     """Screens created before importing (as in the real window) must update after an import."""
     from PIL import Image as PilImage
 
-    from herpetoid.gui.screens.candidate_ranking import CandidateRankingScreen
+    from herpetoid.gui.screens.identification import IdentificationScreen
     from herpetoid.gui.screens.import_images import ImageImportScreen
     from herpetoid.gui.screens.observations import ObservationsScreen
 
     app_state.create_project(tmp_path / "proj", "P")
     observations = ObservationsScreen(app_state)
-    candidates = CandidateRankingScreen(app_state)
+    candidates = IdentificationScreen(app_state)
     importer = ImageImportScreen(app_state)
     for widget in (observations, candidates, importer):
         qtbot.addWidget(widget)
@@ -327,8 +419,7 @@ def test_query_dropdowns_show_code_without_species(
 
     from herpetoid.api import ROI
     from herpetoid.domain import PluginRef
-    from herpetoid.gui.screens.candidate_ranking import CandidateRankingScreen
-    from herpetoid.gui.screens.comparison import ComparisonScreen
+    from herpetoid.gui.screens.identification import IdentificationScreen
 
     app_state.create_project(tmp_path / "proj", "P")
     catalog = app_state.catalog
@@ -347,15 +438,13 @@ def test_query_dropdowns_show_code_without_species(
     assert stored.id is not None
     catalog.set_image_roi(stored.id, ROI.rectangle(5, 5, 40, 40))
 
-    candidates = CandidateRankingScreen(app_state)
-    qtbot.addWidget(candidates)
-    assert candidates.query_combo.itemText(0) == "CA-001"  # code only, no species in the label
-    assert "Calotriton asper" in candidates.query_species_label.text()
-
-    comparison = ComparisonScreen(app_state)
-    qtbot.addWidget(comparison)
-    assert comparison.obs_a_combo.itemText(0) == "CA-001"
-    assert "Calotriton asper" in comparison.species_label.text()
+    screen = IdentificationScreen(app_state)
+    qtbot.addWidget(screen)
+    assert screen.query_combo.itemText(0) == "CA-001"  # code only, no species in the label
+    assert "Calotriton asper" in screen.query_species_label.text()
+    assert screen.obs_a_combo.itemText(0) == "CA-001"
+    screen.set_mode("compare")
+    assert "Calotriton asper" in screen.species_label.text()
 
 
 def test_dynamic_form_roundtrip_and_validation(qtbot) -> None:
@@ -411,6 +500,34 @@ def test_settings_screen_changes_theme(app_state: AppState, qtbot) -> None:
     assert app_state.settings.settings.theme == "dark"
     screen.top_k_spin.setValue(7)
     assert app_state.settings.settings.default_top_k == 7
+
+
+def test_theme_stylesheet_covers_shell_chrome(qtbot) -> None:
+    from herpetoid.gui.theme import _DARK, _LIGHT, ThemeManager, _stylesheet
+
+    for palette in (_DARK, _LIGHT):
+        sheet = _stylesheet(palette)
+        for selector in ("QMenuBar", "QMenu", "QToolBar", "QTabBar::tab", "QDockWidget"):
+            assert selector in sheet
+    # The stylesheet must still parse/apply cleanly.
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance()
+    assert app is not None
+    manager = ThemeManager(app)
+    assert manager.apply("dark") == "dark"
+    assert manager.apply("light") == "light"
+
+
+def test_icons_render_for_all_glyphs(qtbot) -> None:
+    from herpetoid.gui.icons import icon, icon_names
+
+    names = icon_names()
+    assert {"new-project", "import", "identify", "export", "settings", "help"} <= set(names)
+    for name in names:
+        rendered = icon(name)
+        assert not rendered.isNull()
+        assert not rendered.pixmap(20, 20).isNull()
 
 
 def test_observations_screen_lists_and_shows_image(
@@ -576,8 +693,9 @@ def test_nav_order_workflow(app_state: AppState, qtbot) -> None:
     window = MainWindow(app_state)
     qtbot.addWidget(window)
     names = window.screen_names()
-    assert names.index("Observations") < names.index("Candidates")
-    assert names.index("Candidates") < names.index("Individuals")
+    assert names.index("Observations") < names.index("Individuals")
+    assert names.index("Individuals") < names.index("Identification")
+    assert names.index("Identification") < names.index("Statistics")
 
 
 def test_observation_code_creates_and_links_individual(
@@ -587,7 +705,7 @@ def test_observation_code_creates_and_links_individual(
 
     from herpetoid.api import ROI
     from herpetoid.domain import PluginRef
-    from herpetoid.gui.screens.candidate_ranking import CandidateRankingScreen
+    from herpetoid.gui.screens.identification import IdentificationScreen
     from herpetoid.gui.screens.observations import ObservationsScreen
 
     app_state.create_project(tmp_path / "proj", "P")
@@ -616,22 +734,175 @@ def test_observation_code_creates_and_links_individual(
     assert reloaded is not None and reloaded.individual_id == individual.id
     assert any(i.code == "CA-777" for i in catalog.list_individuals())
 
-    # A newly-saved observation with an ROI is selectable in Candidates, labelled by its code.
-    candidates = CandidateRankingScreen(app_state)
+    # A newly-saved observation with an ROI is selectable in Identification, labelled by its code.
+    candidates = IdentificationScreen(app_state)
     qtbot.addWidget(candidates)
     assert candidates.query_combo.count() == 1
     assert candidates.query_combo.itemData(0) == obs.id
     assert "CA-777" in candidates.query_combo.itemText(0)
 
 
-def test_observation_with_roi_but_no_individual_is_selectable(
+
+
+
+
+def _spot_pattern(seed: int, size: int = 256, count: int = 45) -> np.ndarray:
+    import cv2
+
+    rng = np.random.default_rng(seed)
+    img = np.full((size, size), 255, np.uint8)
+    for _ in range(count):
+        cx, cy = rng.integers(20, size - 20, size=2)
+        ax, ay = rng.integers(5, 15, size=2)
+        cv2.ellipse(
+            img, (int(cx), int(cy)), (int(ax), int(ay)), int(rng.integers(0, 180)), 0, 360, 0, -1
+        )
+    return img
+
+
+def _save_gray(path: Path, gray: np.ndarray) -> None:
+    from PIL import Image as PilImage
+
+    PilImage.fromarray(np.stack([gray, gray, gray], axis=-1)).save(path)
+
+
+def _identification_project(app_state: AppState, tmp_path: Path):
+    """A project with three enrolled spot patterns (a, b=rotated a, c) and un-enrolled d."""
+    import cv2
+
+    from herpetoid.api import ROI
+    from herpetoid.domain import PluginRef
+
+    def rotate(img: np.ndarray, deg: float) -> np.ndarray:
+        h, w = img.shape[:2]
+        return cv2.warpAffine(
+            img, cv2.getRotationMatrix2D((w / 2, h / 2), deg, 1.0), (w, h), borderValue=255
+        )
+
+    cv2.setRNGSeed(7)
+    app_state.create_project(tmp_path / "proj", "P")
+    catalog = app_state.catalog
+    assert catalog is not None
+    species = catalog.ensure_species(
+        "Calotriton asper", module=PluginRef("calotriton_asper", "1.0")
+    )
+    assert species.id is not None
+    base = _spot_pattern(1)
+    pa, pb, pc, pd = (tmp_path / f"{n}.png" for n in "abcd")
+    _save_gray(pa, base)
+    _save_gray(pb, rotate(base, 10))
+    _save_gray(pc, _spot_pattern(999))
+    _save_gray(pd, _spot_pattern(500))
+    obs_a = catalog.import_observation(
+        species.id, [pa], measurements={"svl": 50.0, "sex": "female"}
+    )
+    obs_b = catalog.import_observation(species.id, [pb])
+    obs_c = catalog.import_observation(species.id, [pc])
+    obs_d = catalog.import_observation(species.id, [pd])  # not enrolled -> must be excluded
+
+    individuals = {}
+    for obs in (obs_a, obs_b, obs_c):
+        assert obs.id is not None
+        individual = catalog.create_individual(species.id)
+        catalog.link_observation(obs.id, individual.id)
+        image = catalog.images_for(obs.id)[0]
+        assert image.id is not None
+        catalog.set_image_roi(image.id, ROI.rectangle(10, 10, 236, 236))
+        individuals[obs.id] = individual
+    return catalog, obs_a, obs_b, obs_c, obs_d, individuals
+
+
+def test_identification_screen_identify_select_confirm(
+    app_state: AppState, tmp_path: Path, qtbot, monkeypatch
+) -> None:
+    from herpetoid.application.identification_runner import IdentificationRunner
+    from herpetoid.gui.screens.identification import IdentificationScreen
+
+    catalog, obs_a, obs_b, _obs_c, obs_d, individuals = _identification_project(
+        app_state, tmp_path
+    )
+
+    compare_calls: list[tuple[int, int]] = []
+    original_compare = IdentificationRunner.compare
+
+    def counting_compare(self, a_id: int, b_id: int, algorithm_id: str):
+        compare_calls.append((a_id, b_id))
+        return original_compare(self, a_id, b_id, algorithm_id)
+
+    monkeypatch.setattr(IdentificationRunner, "compare", counting_compare)
+
+    screen = IdentificationScreen(app_state)
+    qtbot.addWidget(screen)
+    assert screen.query_combo.count() == 3  # a, b, c — not the un-enrolled d
+    assert screen.query_combo.findData(obs_d.id) == -1
+    screen.query_combo.setCurrentIndex(screen.query_combo.findData(obs_a.id))
+    screen.algorithm_combo.setCurrentIndex(screen.algorithm_combo.findData("orb"))
+
+    assert catalog.identified_observation_ids() == set()
+    screen.identify()
+
+    assert screen._candidates
+    assert screen._candidates[0].observation.id == obs_b.id  # same individual (rotated) first
+    assert obs_a.id in catalog.identified_observation_ids()  # a real run was recorded
+    assert screen.query_panel.viewer.has_image()
+    assert screen.query_panel.info.rowCount() > 0  # species-driven info panel (svl, sex, …)
+    assert not screen.query_panel.roi.pixmap().isNull()
+
+    # The first card is auto-selected: match evidence was computed lazily exactly once and shown.
+    assert screen.cards.currentRow() == 0
+    assert len(compare_calls) == 1
+    assert screen.overlay.viewer.has_image()
+    assert screen.overlay._comparison is not None
+    assert screen.candidate_info.rowCount() > 0
+    card = screen.cards.itemWidget(screen.cards.item(0))
+    assert "inliers" in card.detail_label.text()  # detail line back-filled from the comparison
+
+    # Re-selecting an already-computed card hits the cache (no extra compare run).
+    screen.select_candidate(1)
+    assert len(compare_calls) == 2
+    screen.select_candidate(0)
+    assert len(compare_calls) == 2
+
+    screen.confirm_same()  # links the query to the selected candidate's individual
+    reloaded_a = catalog.get_observation(obs_a.id)
+    assert reloaded_a is not None
+    assert reloaded_a.individual_id == individuals[obs_b.id].id  # now share one individual
+
+
+def test_identification_screen_show_more(app_state: AppState, tmp_path: Path, qtbot) -> None:
+    from herpetoid.gui.screens.identification import IdentificationScreen
+
+    _catalog, obs_a, _obs_b, _obs_c, _obs_d, _individuals = _identification_project(
+        app_state, tmp_path
+    )
+    app_state.settings.settings.default_top_k = 1
+
+    screen = IdentificationScreen(app_state)
+    qtbot.addWidget(screen)
+    screen.query_combo.setCurrentIndex(screen.query_combo.findData(obs_a.id))
+    screen.algorithm_combo.setCurrentIndex(screen.algorithm_combo.findData("orb"))
+    screen.identify()
+
+    assert len(screen._candidates) == 1
+    assert screen.cards.count() == 1
+    assert screen.show_more_button.isEnabled()  # the run filled top-k, so more may exist
+    screen.show_more()
+    assert len(screen._candidates) == 2  # b and c against query a
+    assert screen.cards.count() == 2
+    assert screen.show_more_button.isEnabled()  # 2 filled the requested 2 — more may exist
+    screen.show_more()
+    assert len(screen._candidates) == 2
+    assert not screen.show_more_button.isEnabled()  # 2 < the requested 3: catalog exhausted
+
+
+def test_identification_screen_unassigned_query_selectable(
     app_state: AppState, tmp_path: Path, qtbot
 ) -> None:
     from PIL import Image as PilImage
 
     from herpetoid.api import ROI
     from herpetoid.domain import PluginRef
-    from herpetoid.gui.screens.candidate_ranking import CandidateRankingScreen
+    from herpetoid.gui.screens.identification import IdentificationScreen
 
     app_state.create_project(tmp_path / "proj", "P")
     catalog = app_state.catalog
@@ -648,215 +919,45 @@ def test_observation_with_roi_but_no_individual_is_selectable(
     assert stored.id is not None
     catalog.set_image_roi(stored.id, ROI.rectangle(5, 5, 40, 40))  # ROI only, no individual
 
-    candidates = CandidateRankingScreen(app_state)
-    qtbot.addWidget(candidates)
+    screen = IdentificationScreen(app_state)
+    qtbot.addWidget(screen)
     # It must still be selectable as a query so it *can* be identified/assigned.
-    assert candidates.query_combo.count() == 1
-    assert candidates.query_combo.itemData(0) == obs.id
-    assert "unassigned" in candidates.query_combo.itemText(0)
+    assert screen.query_combo.count() == 1
+    assert screen.query_combo.itemData(0) == obs.id
+    assert "unassigned" in screen.query_combo.itemText(0)
+    assert "Calotriton asper" in screen.query_species_label.text()
 
 
-def test_identify_marks_identified_and_shows_roi(
-    app_state: AppState, tmp_path: Path, qtbot
-) -> None:
-    import cv2
-    from PIL import Image as PilImage
+def test_identification_screen_compare_mode(app_state: AppState, tmp_path: Path, qtbot) -> None:
+    from herpetoid.gui.screens.identification import IdentificationScreen
 
-    from herpetoid.api import ROI
-    from herpetoid.domain import PluginRef
-    from herpetoid.gui.screens.candidate_ranking import CandidateRankingScreen
-
-    def spots(seed: int, size: int = 256) -> np.ndarray:
-        rng = np.random.default_rng(seed)
-        img = np.full((size, size), 255, np.uint8)
-        for _ in range(40):
-            cx, cy = rng.integers(20, size - 20, size=2)
-            cv2.ellipse(img, (int(cx), int(cy)), (8, 10), 0, 0, 360, 0, -1)
-        return np.stack([img] * 3, axis=-1)
-
-    app_state.create_project(tmp_path / "proj", "P")
-    catalog = app_state.catalog
-    assert catalog is not None
-    species = catalog.ensure_species(
-        "Calotriton asper", module=PluginRef("calotriton_asper", "1.0")
+    _catalog, obs_a, obs_b, _obs_c, _obs_d, _individuals = _identification_project(
+        app_state, tmp_path
     )
-    assert species.id is not None
-    query_obs = None
-    for i in range(2):
-        p = tmp_path / f"n{i}.png"
-        PilImage.fromarray(spots(i + 1)).save(p)
-        obs = catalog.import_observation(species.id, [p])
-        assert obs.id is not None
-        ind = catalog.create_individual(species.id, code=f"CA-{i + 1:03d}")
-        catalog.link_observation(obs.id, ind.id)
-        img = catalog.images_for(obs.id)[0]
-        assert img.id is not None
-        catalog.set_image_roi(img.id, ROI.rectangle(20, 20, 216, 216))
-        query_obs = query_obs or obs
 
-    # Before identifying, nothing is marked as run-through-identification.
-    assert catalog.identified_observation_ids() == set()
-
-    screen = CandidateRankingScreen(app_state)
+    screen = IdentificationScreen(app_state)
     qtbot.addWidget(screen)
-    assert query_obs is not None and query_obs.id is not None
-    screen.query_combo.setCurrentIndex(screen.query_combo.findData(query_obs.id))
-    screen.algorithm_combo.setCurrentIndex(screen.algorithm_combo.findData("orb"))
-    screen.identify()
+    assert screen.mode() == "identify"
+    screen.set_mode("compare")
+    assert screen.mode() == "compare"
+    assert screen._matches_panel.isHidden()  # the ranked cards only apply to identify mode
 
-    # The query is now recorded as identified, and its ROI crop is shown beside the data.
-    assert query_obs.id in catalog.identified_observation_ids()
-    assert not screen.query_roi.pixmap().isNull()
-
-
-def test_candidate_ranking_identify_and_confirm(app_state: AppState, tmp_path: Path, qtbot) -> None:
-    import cv2
-    from PIL import Image as PilImage
-
-    from herpetoid.api import ROI
-    from herpetoid.domain import PluginRef
-    from herpetoid.gui.screens.candidate_ranking import CandidateRankingScreen
-
-    def spots(seed: int, size: int = 256, count: int = 45) -> np.ndarray:
-        rng = np.random.default_rng(seed)
-        img = np.full((size, size), 255, np.uint8)
-        for _ in range(count):
-            cx, cy = rng.integers(20, size - 20, size=2)
-            ax, ay = rng.integers(5, 15, size=2)
-            cv2.ellipse(
-                img,
-                (int(cx), int(cy)),
-                (int(ax), int(ay)),
-                int(rng.integers(0, 180)),
-                0,
-                360,
-                0,
-                -1,
-            )
-        return img
-
-    def rotate(img: np.ndarray, deg: float) -> np.ndarray:
-        h, w = img.shape[:2]
-        return cv2.warpAffine(
-            img, cv2.getRotationMatrix2D((w / 2, h / 2), deg, 1.0), (w, h), borderValue=255
-        )
-
-    def save(path: Path, gray: np.ndarray) -> None:
-        PilImage.fromarray(np.stack([gray, gray, gray], axis=-1)).save(path)
-
-    cv2.setRNGSeed(7)
-    app_state.create_project(tmp_path / "proj", "P")
-    catalog = app_state.catalog
-    assert catalog is not None
-    species = catalog.ensure_species(
-        "Calotriton asper", module=PluginRef("calotriton_asper", "1.0")
-    )
-    assert species.id is not None
-    base = spots(1)
-    pa, pb, pc, pd = (tmp_path / f"{n}.png" for n in "abcd")
-    save(pa, base)
-    save(pb, rotate(base, 10))
-    save(pc, spots(999))
-    save(pd, spots(500))
-    obs_a = catalog.import_observation(species.id, [pa], measurements={"svl": 50.0, "sex": "female"})
-    obs_b = catalog.import_observation(species.id, [pb])
-    obs_c = catalog.import_observation(species.id, [pc])
-    obs_d = catalog.import_observation(species.id, [pd])  # not enrolled -> must be excluded
-
-    # Only cataloged individuals with a marked ROI are comparable; enrol a, b and c (not d).
-    individuals = {}
-    for obs in (obs_a, obs_b, obs_c):
-        assert obs.id is not None
-        individual = catalog.create_individual(species.id)
-        catalog.link_observation(obs.id, individual.id)
-        image = catalog.images_for(obs.id)[0]
-        assert image.id is not None
-        catalog.set_image_roi(image.id, ROI.rectangle(10, 10, 236, 236))
-        individuals[obs.id] = individual
-
-    screen = CandidateRankingScreen(app_state)
-    qtbot.addWidget(screen)
-    assert screen.query_combo.count() == 3  # a, b, c — not the un-enrolled d
-    assert screen.query_combo.findData(obs_d.id) == -1
-    screen.query_combo.setCurrentIndex(screen.query_combo.findData(obs_a.id))
-    screen.algorithm_combo.setCurrentIndex(screen.algorithm_combo.findData("orb"))
-    screen.identify()
-
-    assert screen._candidates
-    assert screen._candidates[0].observation.id == obs_b.id  # same individual (rotated) first
-    assert screen.query_viewer.has_image()
-    assert screen.query_info.rowCount() > 0  # species-driven info panel populated (svl, sex, …)
-    screen.table.selectRow(0)
-    assert screen.candidate_viewer.has_image()
-    assert screen.candidate_info.rowCount() > 0
-
-    screen.confirm_same()  # links the query to the selected candidate's individual
-    reloaded_a = catalog.get_observation(obs_a.id)
-    assert reloaded_a is not None
-    assert reloaded_a.individual_id == individuals[obs_b.id].id  # now share one individual
-
-
-def test_comparison_screen_compares_two_observations(
-    app_state: AppState, tmp_path: Path, qtbot
-) -> None:
-    import cv2
-    from PIL import Image as PilImage
-
-    from herpetoid.domain import PluginRef
-    from herpetoid.gui.screens.comparison import ComparisonScreen
-
-    def spots(seed: int, size: int = 256, count: int = 45) -> np.ndarray:
-        rng = np.random.default_rng(seed)
-        img = np.full((size, size), 255, np.uint8)
-        for _ in range(count):
-            cx, cy = rng.integers(20, size - 20, size=2)
-            ax, ay = rng.integers(5, 15, size=2)
-            cv2.ellipse(img, (int(cx), int(cy)), (int(ax), int(ay)), 0, 0, 360, 0, -1)
-        return img
-
-    def save(path: Path, gray: np.ndarray) -> None:
-        PilImage.fromarray(np.stack([gray, gray, gray], axis=-1)).save(path)
-
-    cv2.setRNGSeed(3)
-    app_state.create_project(tmp_path / "proj", "P")
-    catalog = app_state.catalog
-    assert catalog is not None
-    species = catalog.ensure_species(
-        "Calotriton asper", module=PluginRef("calotriton_asper", "1.0")
-    )
-    assert species.id is not None
-    base = spots(1)
-    pa, pb = tmp_path / "a.png", tmp_path / "b.png"
-    save(pa, base)
-    save(pb, base)  # identical -> should match strongly
-    obs_a = catalog.import_observation(species.id, [pa])
-    obs_b = catalog.import_observation(species.id, [pb])
-    # Both must be cataloged individuals with a marked ROI to be comparable.
-    from herpetoid.api import ROI
-
-    for obs in (obs_a, obs_b):
-        assert obs.id is not None
-        individual = catalog.create_individual(species.id)
-        catalog.link_observation(obs.id, individual.id)
-        image = catalog.images_for(obs.id)[0]
-        assert image.id is not None
-        catalog.set_image_roi(image.id, ROI.rectangle(10, 10, 236, 236))
-
-    screen = ComparisonScreen(app_state)
-    qtbot.addWidget(screen)
-    assert screen.obs_a_combo.count() == 2
     screen.obs_a_combo.setCurrentIndex(screen.obs_a_combo.findData(obs_a.id))
     screen.obs_b_combo.setCurrentIndex(screen.obs_b_combo.findData(obs_b.id))
     screen.algorithm_combo.setCurrentIndex(screen.algorithm_combo.findData("orb"))
     screen.compare()
 
     assert screen._comparison is not None
-    assert screen._comparison.result.inliers > 0  # identical patterns produce inlier matches
-    assert screen.viewer.has_image()  # the side-by-side composite is shown
+    assert screen._comparison.result.inliers > 0  # rotated copy still produces inlier matches
+    assert screen.overlay.viewer.has_image()  # the side-by-side composite is shown
+    assert screen.query_panel.viewer.has_image()  # A is shown in the left panel
+
+    screen.set_mode("identify")
+    assert not screen._matches_panel.isHidden()
 
 
 def test_build_match_composite_dimensions() -> None:
-    from herpetoid.gui.screens.comparison import build_match_composite
+    from herpetoid.gui.widgets.match_overlay import build_match_composite
 
     left = np.zeros((40, 30), np.uint8)
     right = np.zeros((50, 20), np.uint8)
@@ -868,7 +969,7 @@ def test_build_match_composite_dimensions() -> None:
 
 
 def test_build_match_composite_overlay_options() -> None:
-    from herpetoid.gui.screens.comparison import build_match_composite
+    from herpetoid.gui.widgets.match_overlay import build_match_composite
 
     left = np.full((60, 50, 3), 200, np.uint8)
     right = np.full((60, 50, 3), 200, np.uint8)

@@ -1,8 +1,8 @@
 """End-to-end proof: drive the real GUI screens through the whole photo-ID workflow.
 
 This is Claude's standing self-check. Unlike the focused unit/screen tests, it exercises the entire
-pipeline *through the actual screens and services* — import -> mark ROI + code -> identify -> confirm ->
-browse the catalog -> statistics — so a regression in the wiring *between* layers fails loudly here.
+pipeline *through the actual shell* — import -> mark ROI + code -> identify -> confirm -> browse the
+catalog -> statistics — so a regression in the wiring *between* layers fails loudly here.
 
 Keep this test (and add to it) whenever a feature touches the cross-screen workflow.
 """
@@ -21,7 +21,7 @@ from herpetoid.application.project_service import ProjectService
 from herpetoid.application.registry import PluginRegistry
 from herpetoid.application.settings import SettingsService
 from herpetoid.gui.main_window import MainWindow
-from herpetoid.gui.screens.candidate_ranking import CandidateRankingScreen
+from herpetoid.gui.screens.identification import IdentificationScreen
 from herpetoid.gui.screens.import_images import ImageImportScreen
 from herpetoid.gui.screens.individuals import IndividualBrowserScreen
 from herpetoid.gui.screens.observations import ObservationsScreen
@@ -55,14 +55,6 @@ def _save(path: Path, gray: np.ndarray) -> None:
     PilImage.fromarray(np.stack([gray, gray, gray], axis=-1)).save(path)
 
 
-def _screen(window: MainWindow, cls: type) -> object:
-    for index in range(window._stack.count()):
-        widget = window._stack.widget(index)
-        if isinstance(widget, cls):
-            return widget
-    raise AssertionError(f"no {cls.__name__} in the window")
-
-
 def test_full_photo_id_workflow(tmp_path: Path, qtbot) -> None:
     cv2.setRNGSeed(11)
     registry = PluginRegistry()
@@ -75,18 +67,21 @@ def test_full_photo_id_workflow(tmp_path: Path, qtbot) -> None:
     window = MainWindow(state)
     qtbot.addWidget(window)
 
-    # 1) The whole app boots and every screen is reachable.
+    # 1) The whole app boots: every workflow tab is reachable and the legacy names still resolve.
     for name in window.screen_names():
         window.navigate_to(name)
         assert window.current_screen_name() == name
+    window.navigate_to("Candidates")  # legacy Home-card destinations map onto the new shell
+    assert window.current_screen_name() == "Identification"
 
-    # 2) Create a project.
+    # 2) Create a project. The dock's project tree picks it up.
     state.create_project(tmp_path / "proj", "E2E study")
     assert state.project is not None
     catalog = state.catalog
     assert catalog is not None
+    assert window._dock.tree.topLevelItem(0).text(0) == "E2E study"
 
-    # 3) Import three captures through the Import screen: a base pattern, the SAME pattern rotated,
+    # 3) Import three captures through the Import dialog: a base pattern, the SAME pattern rotated,
     #    and a DIFFERENT individual.
     base = _spots(1)
     files = {
@@ -96,12 +91,16 @@ def test_full_photo_id_workflow(tmp_path: Path, qtbot) -> None:
     }
     for filename, gray in files.items():
         _save(tmp_path / filename, gray)
-    importer = _screen(window, ImageImportScreen)
+    importer = window.open_dialog("Import")
+    assert isinstance(importer, ImageImportScreen)
     assert importer.species_combo.count() >= 1  # Calotriton asper from the registry
     assert importer.import_files([tmp_path / name for name in files]) == 3
     assert catalog.observation_count() == 3
+    dock_root = window._dock.tree.topLevelItem(0)
+    dock_lines = [dock_root.child(i).text(0) for i in range(dock_root.childCount())]
+    assert "Observations (3)" in dock_lines  # the dock tree tracks the import live
 
-    # 4) In the Observations screen, mark an ROI and assign an individual code to each capture.
+    # 4) In the Observations tab, mark an ROI and assign an individual code to each capture.
     def observation_id_for(filename: str) -> int:
         for observation in catalog.list_observations():
             assert observation.id is not None
@@ -114,7 +113,8 @@ def test_full_photo_id_workflow(tmp_path: Path, qtbot) -> None:
     # Capture ids up front: saving sets observed_at, which re-sorts the table, so a plain row loop
     # would skip/duplicate rows. Select each observation by id from the freshly-refreshed list.
     code_by_id = {observation_id_for(filename): code for filename, code in codes.items()}
-    editor = _screen(window, ObservationsScreen)
+    editor = window.find_screen(ObservationsScreen)
+    assert isinstance(editor, ObservationsScreen)
     for observation_id, code in code_by_id.items():
         row = next(
             r for r in range(editor.table.rowCount()) if editor._observations[r].id == observation_id
@@ -129,28 +129,53 @@ def test_full_photo_id_workflow(tmp_path: Path, qtbot) -> None:
     assert catalog.individual_count() == 3
     assert len(catalog.comparable_observations()) == 3
 
-    # 5) Identify the base capture against the catalog: the rotated same-individual must rank first.
+    # 5) Identify the base capture against the catalog: the rotated same-individual must rank first,
+    #    and selecting its card lazily computes + renders the pairwise match evidence.
     base_id = observation_id_for("base.png")
     rotated_id = observation_id_for("rotated.png")
-    candidates = _screen(window, CandidateRankingScreen)
-    candidates.query_combo.setCurrentIndex(candidates.query_combo.findData(base_id))
-    candidates.algorithm_combo.setCurrentIndex(candidates.algorithm_combo.findData("orb"))
-    candidates.identify()
-    assert candidates._candidates, "identification returned no candidates"
-    assert candidates._candidates[0].observation.id == rotated_id
-    assert candidates.query_info.rowCount() > 0  # species-driven info panel populated
+    identification = window.find_screen(IdentificationScreen)
+    assert isinstance(identification, IdentificationScreen)
+    identification.query_combo.setCurrentIndex(identification.query_combo.findData(base_id))
+    identification.algorithm_combo.setCurrentIndex(
+        identification.algorithm_combo.findData("orb")
+    )
+    identification.identify()
+    assert identification._candidates, "identification returned no candidates"
+    assert identification._candidates[0].observation.id == rotated_id
+    assert identification.query_panel.info.rowCount() > 0  # species-driven info panel populated
+    assert base_id in catalog.identified_observation_ids()  # the run was recorded
+
+    identification.select_candidate(0)
+    assert identification.overlay.viewer.has_image()  # match composite rendered
+    card = identification.cards.itemWidget(identification.cards.item(0))
+    assert "inliers" in card.detail_label.text()  # match evidence back-filled on the card
 
     # 6) Confirm the match: the base capture is linked to the rotated capture's individual.
-    candidates.table.selectRow(0)
-    candidates.confirm_same()
+    identification.confirm_same()
     linked = catalog.get_observation(base_id)
     rotated = catalog.get_observation(rotated_id)
     assert linked is not None and rotated is not None
     assert linked.individual_id == rotated.individual_id
+    dock_root = window._dock.tree.topLevelItem(0)
+    dock_lines = [dock_root.child(i).text(0) for i in range(dock_root.childCount())]
+    # The confirm re-links the observation (CA-001's individual remains, now without observations).
+    assert "Individuals (3)" in dock_lines
+    assert "Recaptures: 1" in window._dock.stats_label.text()  # base is now a recapture of CA-002
 
     # 7) The Individuals catalog and the Statistics dashboard reflect the work.
-    individuals = _screen(window, IndividualBrowserScreen)
+    individuals = window.find_screen(IndividualBrowserScreen)
+    assert isinstance(individuals, IndividualBrowserScreen)
     individuals._refresh()
     assert individuals.table.rowCount() >= 1
-    statistics = _screen(window, StatisticsScreen)
+    statistics = window.find_screen(StatisticsScreen)
+    assert isinstance(statistics, StatisticsScreen)
     assert "Observations: 3" in statistics.summary_label.text()
+
+    # 8) The shell itself: the View toggle collapses the project panel and restores it.
+    window.show()
+    toggle = window._dock.toggleViewAction()
+    assert window._dock.isVisible()
+    toggle.trigger()
+    assert not window._dock.isVisible()
+    toggle.trigger()
+    assert window._dock.isVisible()
