@@ -1043,9 +1043,29 @@ def test_build_match_composite_dimensions() -> None:
     right = np.zeros((50, 20), np.uint8)
     corr = np.array([[5, 5, 4, 4], [10, 20, 8, 18]], float)
     composite = build_match_composite(left, right, corr)
-    assert composite.shape[0] == 50  # max height
+    assert composite.shape[0] == 50  # both patterns normalized to the tallest height
     assert composite.shape[2] == 3  # RGB
-    assert composite.shape[1] == 30 + 24 + 20  # left + gap + right
+    # The left pattern is scaled 50/40 = 1.25x to match: width 30 -> 38.
+    assert composite.shape[1] == 38 + 24 + 20  # left + gap + right
+
+
+def test_build_match_composite_normalizes_orientation_and_size() -> None:
+    """Landscape patterns are rotated upright and both sides share one height (like-for-like pair)."""
+    from herpetoid.gui.widgets.match_overlay import build_match_composite
+
+    landscape = np.zeros((30, 40), np.uint8)  # wider than tall -> must be rotated to 40x30
+    portrait = np.zeros((50, 20), np.uint8)
+    corr = np.array([[39, 0, 4, 4]], float)  # top-right corner of the landscape query
+    composite = build_match_composite(landscape, portrait, corr)
+    assert composite.shape[0] == 50  # rotated left (40 tall) scaled up to the right's 50
+    left_width = round(30 * 50 / 40)  # 38 after the 1.25x scale
+    assert composite.shape[1] == left_width + 24 + 20
+    # The overlay must still land on the canvas: something was drawn (composite differs from plain).
+    plain = build_match_composite(landscape, portrait, corr, show_lines=False, show_points=False)
+    assert not np.array_equal(plain, composite)
+    # And both sides are fully painted (no untouched background stripe below either pattern).
+    assert not (plain[:, :left_width] == 245).all(axis=2).any()  # left column fully covered
+    assert not (plain[:, left_width + 24 :] == 245).all(axis=2).any()  # right column fully covered
 
 
 def test_build_match_composite_overlay_options() -> None:

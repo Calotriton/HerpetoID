@@ -54,33 +54,62 @@ def build_match_composite(
     max_matches: int | None = None,
     opacity: float = 1.0,
 ) -> np.ndarray:
-    """Lay the two patterns side by side and draw the matched spots.
+    """Lay the two patterns side by side — both upright and at the same height — and draw the matches.
 
-    ``max_matches`` limits how many correspondences are drawn, ``opacity`` (0-1) fades the overlay so
-    the patterns stay visible underneath, and ``show_lines`` / ``show_points`` toggle each layer.
+    Each pattern is rotated to portrait if it comes in landscape and scaled to a shared height, so the
+    two bellies always read as a like-for-like pair; the correspondence points are mapped through the
+    same rotation/scale. ``max_matches`` limits how many correspondences are drawn, ``opacity`` (0-1)
+    fades the overlay so the patterns stay visible underneath, and ``show_lines`` / ``show_points``
+    toggle each layer.
     """
     import cv2
 
-    left = _to_rgb_u8(query_image)
-    right = _to_rgb_u8(target_image)
-    hl, wl = left.shape[:2]
-    hr, wr = right.shape[:2]
-    height = max(hl, hr)
+    def prepare(image: np.ndarray) -> tuple[np.ndarray, bool, int]:
+        """RGB, rotated-to-portrait flag, and the pre-rotation height (for point mapping)."""
+        rgb = _to_rgb_u8(image)
+        pre_height = rgb.shape[0]
+        rotated = rgb.shape[1] > rgb.shape[0]
+        if rotated:
+            rgb = cv2.rotate(rgb, cv2.ROTATE_90_CLOCKWISE)
+        return rgb, rotated, pre_height
+
+    left, left_rotated, left_pre_height = prepare(query_image)
+    right, right_rotated, right_pre_height = prepare(target_image)
+    height = max(left.shape[0], right.shape[0])
+    left_scale = height / left.shape[0]
+    right_scale = height / right.shape[0]
+    if left_scale != 1.0:
+        left = cv2.resize(left, (max(1, round(left.shape[1] * left_scale)), height))
+    if right_scale != 1.0:
+        right = cv2.resize(right, (max(1, round(right.shape[1] * right_scale)), height))
+    wl, wr = left.shape[1], right.shape[1]
     base = np.full((height, wl + _GAP + wr, 3), 245, np.uint8)
-    base[:hl, :wl] = left
+    base[:, :wl] = left
     offset = wl + _GAP
-    base[:hr, offset : offset + wr] = right
+    base[:, offset : offset + wr] = right
 
     has_matches = correspondences is not None and len(correspondences) > 0
     if not has_matches or opacity <= 0 or not (show_lines or show_points):
         return base
 
-    points = np.rint(np.asarray(correspondences, dtype=float)).astype(int)
+    raw = np.asarray(correspondences, dtype=float)
     if max_matches is not None:
-        points = points[: max(0, max_matches)]
-    count = len(points)
-    if count == 0:
+        raw = raw[: max(0, max_matches)]
+    if len(raw) == 0:
         return base
+
+    # Map each side's points through the same portrait rotation (clockwise: (x, y) -> (h-1-y, x))
+    # and scale that its image received.
+    qx, qy = raw[:, 0].copy(), raw[:, 1].copy()
+    if left_rotated:
+        qx, qy = left_pre_height - 1 - qy, qx
+    tx, ty = raw[:, 2].copy(), raw[:, 3].copy()
+    if right_rotated:
+        tx, ty = right_pre_height - 1 - ty, tx
+    points = np.rint(
+        np.stack([qx * left_scale, qy * left_scale, tx * right_scale, ty * right_scale], axis=1)
+    ).astype(int)
+    count = len(points)
 
     hsv = np.zeros((count, 1, 3), np.uint8)
     hsv[:, 0, 0] = (np.arange(count) * 180 // max(1, count)).astype(np.uint8)  # spread hues
