@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from herpetoid.application.catalog_service import PENDING_CODE_KEY, pending_code
 from herpetoid.application.identification_runner import (
     Candidate,
     IdentificationRunner,
@@ -138,11 +139,18 @@ class IdentificationScreen(QWidget):
     def _build_controls(self) -> QHBoxLayout:
         controls = QHBoxLayout()
 
-        self.identify_mode_button = QPushButton("Identify")
+        # The mode switch is a compact segmented toggle (styled via #modeSwitch) so it cannot be
+        # mistaken for the primary "Run …" action button on the right.
+        mode_label = QLabel("Mode:")
+        mode_label.setStyleSheet("color: palette(mid);")
+        controls.addWidget(mode_label)
+        self.identify_mode_button = QPushButton("Identification")
         self.identify_mode_button.setCheckable(True)
         self.identify_mode_button.setChecked(True)
         self.compare_mode_button = QPushButton("Compare A/B")
         self.compare_mode_button.setCheckable(True)
+        for button in (self.identify_mode_button, self.compare_mode_button):
+            button.setObjectName("modeSwitch")
         group = QButtonGroup(self)
         group.setExclusive(True)
         group.addButton(self.identify_mode_button)
@@ -151,23 +159,23 @@ class IdentificationScreen(QWidget):
         self.compare_mode_button.clicked.connect(lambda: self.set_mode("compare"))
         controls.addWidget(self.identify_mode_button)
         controls.addWidget(self.compare_mode_button)
-        controls.addSpacing(14)
+        controls.addSpacing(18)
 
         self._control_stack = QStackedWidget()
 
         identify_row = QWidget()
         identify_layout = QHBoxLayout(identify_row)
         identify_layout.setContentsMargins(0, 0, 0, 0)
-        identify_layout.addWidget(QLabel("Query:"))
+        identify_layout.addWidget(QLabel("<b>Query:</b>"))
         self.query_combo = QComboBox()
-        self.query_combo.setMinimumWidth(150)
-        self.query_combo.currentIndexChanged.connect(self._update_query_species)
+        self.query_combo.setMinimumWidth(170)
+        self.query_combo.currentIndexChanged.connect(self._on_query_changed)
         identify_layout.addWidget(self.query_combo)
         self.query_species_label = QLabel()
         self.query_species_label.setStyleSheet("color: palette(mid);")
         identify_layout.addWidget(self.query_species_label)
         identify_layout.addStretch(1)
-        self.identify_button = QPushButton("Identify")
+        self.identify_button = QPushButton("Run identification")
         self.identify_button.setObjectName("primary")
         self.identify_button.clicked.connect(self.identify)
         identify_layout.addWidget(self.identify_button)
@@ -176,11 +184,11 @@ class IdentificationScreen(QWidget):
         compare_row = QWidget()
         compare_layout = QHBoxLayout(compare_row)
         compare_layout.setContentsMargins(0, 0, 0, 0)
-        compare_layout.addWidget(QLabel("A:"))
+        compare_layout.addWidget(QLabel("<b>A:</b>"))
         self.obs_a_combo = QComboBox()
         self.obs_a_combo.setMinimumWidth(140)
         compare_layout.addWidget(self.obs_a_combo)
-        compare_layout.addWidget(QLabel("B:"))
+        compare_layout.addWidget(QLabel("<b>B:</b>"))
         self.obs_b_combo = QComboBox()
         self.obs_b_combo.setMinimumWidth(140)
         compare_layout.addWidget(self.obs_b_combo)
@@ -188,12 +196,12 @@ class IdentificationScreen(QWidget):
         self.species_label.setStyleSheet("color: palette(mid);")
         compare_layout.addWidget(self.species_label)
         compare_layout.addStretch(1)
-        self.compare_button = QPushButton("Compare")
+        self.compare_button = QPushButton("Run comparison")
         self.compare_button.setObjectName("primary")
         self.compare_button.clicked.connect(self.compare)
         compare_layout.addWidget(self.compare_button)
         self._control_stack.addWidget(compare_row)
-        self.obs_a_combo.currentIndexChanged.connect(self._update_species_label)
+        self.obs_a_combo.currentIndexChanged.connect(self._on_compare_a_changed)
         self.obs_b_combo.currentIndexChanged.connect(self._update_species_label)
 
         controls.addWidget(self._control_stack, 1)
@@ -206,7 +214,7 @@ class IdentificationScreen(QWidget):
     def _build_body(self) -> QSplitter:
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
-        self.query_panel = ObservationPanel("Query")
+        self.query_panel = ObservationPanel("Query observation")
         splitter.addWidget(self.query_panel)
 
         self._matches_panel = QWidget()
@@ -253,9 +261,15 @@ class IdentificationScreen(QWidget):
         self.status_label = QLabel()
         actions.addWidget(self.status_label)
         actions.addStretch(1)
-        self.new_button = QPushButton("Mark query as new individual")
+        self._decision_label = QLabel("Your decision:")
+        self._decision_label.setStyleSheet("color: palette(mid);")
+        actions.addWidget(self._decision_label)
+        # Two equally visible verdicts: "new individual" is an accent outline, "same individual" is
+        # the filled primary — clearly siblings, clearly different outcomes.
+        self.new_button = QPushButton("✚ Mark query as NEW individual")
+        self.new_button.setObjectName("accentOutline")
         self.new_button.clicked.connect(self.mark_new)
-        self.confirm_button = QPushButton("Confirm same individual")
+        self.confirm_button = QPushButton("✓ Confirm SAME individual as match")
         self.confirm_button.setObjectName("primary")
         self.confirm_button.clicked.connect(self.confirm_same)
         actions.addWidget(self.new_button)
@@ -272,8 +286,16 @@ class IdentificationScreen(QWidget):
         self.identify_mode_button.setChecked(not compare)
         self._control_stack.setCurrentIndex(1 if compare else 0)
         self._matches_panel.setVisible(not compare)
+        self._decision_label.setVisible(not compare)
         self.new_button.setVisible(not compare)
         self.confirm_button.setVisible(not compare)
+        self.query_panel.title_label.setText(
+            "<b>Observation A</b>" if compare else "<b>Query observation</b>"
+        )
+        if compare:
+            self._on_compare_a_changed()
+        else:
+            self._on_query_changed()
 
     # -- state -------------------------------------------------------------------------------------
     def _refresh(self) -> None:
@@ -321,18 +343,38 @@ class IdentificationScreen(QWidget):
         # just the code (the species is shown once, next to them, to avoid repeating it per row).
         for obs in catalog.comparable_observations():
             code = codes.get(obs.individual_id) if obs.individual_id else None
-            label = code if code else f"Obs {obs.id} (unassigned)"
+            if code is None and (pending := pending_code(obs)):
+                label = f"Obs {obs.id} · {pending} (pending)"
+            else:
+                label = code if code else f"Obs {obs.id} (unassigned)"
             self.query_combo.addItem(label, obs.id)
             self.obs_a_combo.addItem(label, obs.id)
             self.obs_b_combo.addItem(label, obs.id)
             self._species_by_obs[obs.id] = self._species_names.get(obs.species_id, "")
-        self._update_query_species()
+        self._on_query_changed()
         self._update_species_label()
 
     def _update_query_species(self) -> None:
         obs_id = self.query_combo.currentData()
         species = self._species_by_obs.get(obs_id, "") if obs_id is not None else ""
         self.query_species_label.setText(f"Species: {species}" if species else "")
+
+    def _on_query_changed(self) -> None:
+        """Show the picked query immediately, so it is visible before running anything."""
+        self._update_query_species()
+        if self.mode() == "identify":
+            obs_id = self.query_combo.currentData()
+            self.query_panel.show_observation(
+                self._state, int(obs_id) if obs_id is not None else None
+            )
+
+    def _on_compare_a_changed(self) -> None:
+        self._update_species_label()
+        if self.mode() == "compare":
+            obs_id = self.obs_a_combo.currentData()
+            self.query_panel.show_observation(
+                self._state, int(obs_id) if obs_id is not None else None
+            )
 
     def _update_species_label(self) -> None:
         a_species = self._species_by_obs.get(self.obs_a_combo.currentData(), "")
@@ -496,20 +538,48 @@ class IdentificationScreen(QWidget):
                 catalog.link_observation(candidate.observation.id, individual.id)
             catalog.link_observation(self._query_observation_id, individual.id)
             code = individual.code
+        self._clear_pending_code(self._query_observation_id)  # superseded by the confirmed match
         self.status_label.setText(f"Linked to individual {code}.")
         self._state.project_changed.emit()
 
     def mark_new(self) -> None:
+        """Confirm the query as a new individual — this is where individuals are actually created.
+
+        Reuses the code the user typed in the Observations editor (kept *pending* until now); if the
+        query is already assigned, it does nothing rather than minting a duplicate individual.
+        """
         catalog = self._state.catalog
         if catalog is None or self._query_observation_id is None:
             return
         query = catalog.get_observation(self._query_observation_id)
         if query is None:
             return
-        individual = catalog.create_individual(query.species_id)
+        if query.individual_id is not None:
+            existing = catalog.get_individual(query.individual_id)
+            code = existing.code if existing is not None else "?"
+            self.status_label.setText(f"Already assigned to individual {code}.")
+            return
+        code_hint = pending_code(query)
+        if code_hint is not None:
+            individual = catalog.find_individual_by_code(
+                query.species_id, code_hint
+            ) or catalog.create_individual(query.species_id, code=code_hint)
+        else:
+            individual = catalog.create_individual(query.species_id)
         catalog.link_observation(self._query_observation_id, individual.id)
+        self._clear_pending_code(self._query_observation_id)
         self.status_label.setText(f"Created individual {individual.code}.")
         self._state.project_changed.emit()
+
+    def _clear_pending_code(self, observation_id: int) -> None:
+        catalog = self._state.catalog
+        if catalog is None:
+            return
+        observation = catalog.get_observation(observation_id)
+        if observation is None or PENDING_CODE_KEY not in observation.measurements:
+            return
+        observation.measurements.pop(PENDING_CODE_KEY)
+        catalog.update_observation(observation)
 
     # -- compare A/B -------------------------------------------------------------------------------
     def compare(self) -> None:

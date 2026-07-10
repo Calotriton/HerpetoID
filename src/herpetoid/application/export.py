@@ -55,6 +55,8 @@ def measurement_keys(data: ExportData) -> list[str]:
     seen: set[str] = set()
     for obs in data.observations:
         for key in obs.measurements:
+            if key.startswith("_"):  # reserved internal keys (e.g. a pending individual code)
+                continue
             if key not in seen:
                 seen.add(key)
                 keys.append(key)

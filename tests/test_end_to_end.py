@@ -116,29 +116,40 @@ def test_full_photo_id_workflow(tmp_path: Path, qtbot) -> None:
     editor = window.find_screen(ObservationsScreen)
     assert isinstance(editor, ObservationsScreen)
     for observation_id, code in code_by_id.items():
-        row = next(
-            r for r in range(editor.table.rowCount()) if editor._observations[r].id == observation_id
-        )
-        editor.table.selectRow(row)
+        editor.select_observation(observation_id)
         assert editor._current is not None and editor._current.id == observation_id
         editor.code_edit.setText(code)
         editor.viewer.set_roi(ROI.rectangle(10, 10, 236, 236))
         editor.save()
 
-    # Every capture is now a cataloged individual with a marked ROI.
-    assert catalog.individual_count() == 3
+    # Saving does NOT create individuals — the typed codes are pending until the user confirms
+    # them on the Identification tab. All three are queryable (they have a ROI).
+    assert catalog.individual_count() == 0
     assert len(catalog.comparable_observations()) == 3
 
-    # 5) Identify the base capture against the catalog: the rotated same-individual must rank first,
-    #    and selecting its card lazily computes + renders the pairwise match evidence.
+    # 5) Enrol the two known captures: identify each (an empty catalog yields no candidates) and
+    #    confirm them as NEW individuals — this is the step that actually creates CA-002 / CA-003.
     base_id = observation_id_for("base.png")
     rotated_id = observation_id_for("rotated.png")
+    other_id = observation_id_for("other.png")
     identification = window.find_screen(IdentificationScreen)
     assert isinstance(identification, IdentificationScreen)
-    identification.query_combo.setCurrentIndex(identification.query_combo.findData(base_id))
     identification.algorithm_combo.setCurrentIndex(
         identification.algorithm_combo.findData("orb")
     )
+    identification.query_combo.setCurrentIndex(identification.query_combo.findData(rotated_id))
+    identification.identify()
+    assert not identification._candidates  # nothing enrolled yet to match against
+    identification.mark_new()
+    identification.query_combo.setCurrentIndex(identification.query_combo.findData(other_id))
+    identification.identify()  # CA-002 is enrolled now, so a (weak) candidate may rank
+    identification.mark_new()  # …but the scientist decides this is a different animal
+    assert catalog.individual_count() == 2  # CA-002 and CA-003, from their pending codes
+    assert {i.code for i in catalog.list_individuals()} == {"CA-002", "CA-003"}
+
+    # 6) Identify the base capture against the catalog: the rotated same-individual must rank
+    #    first, and selecting its card lazily computes + renders the pairwise match evidence.
+    identification.query_combo.setCurrentIndex(identification.query_combo.findData(base_id))
     identification.identify()
     assert identification._candidates, "identification returned no candidates"
     assert identification._candidates[0].observation.id == rotated_id
@@ -150,16 +161,17 @@ def test_full_photo_id_workflow(tmp_path: Path, qtbot) -> None:
     card = identification.cards.itemWidget(identification.cards.item(0))
     assert "inliers" in card.detail_label.text()  # match evidence back-filled on the card
 
-    # 6) Confirm the match: the base capture is linked to the rotated capture's individual.
+    # Confirm the match: the base capture joins the rotated capture's individual; its own pending
+    # code CA-001 is superseded (no phantom third individual).
     identification.confirm_same()
     linked = catalog.get_observation(base_id)
     rotated = catalog.get_observation(rotated_id)
     assert linked is not None and rotated is not None
     assert linked.individual_id == rotated.individual_id
+    assert catalog.individual_count() == 2
     dock_root = window._dock.tree.topLevelItem(0)
     dock_lines = [dock_root.child(i).text(0) for i in range(dock_root.childCount())]
-    # The confirm re-links the observation (CA-001's individual remains, now without observations).
-    assert "Individuals (3)" in dock_lines
+    assert "Individuals (2)" in dock_lines
     assert "Recaptures: 1" in window._dock.stats_label.text()  # base is now a recapture of CA-002
 
     # 7) The Individuals catalog and the Statistics dashboard reflect the work.

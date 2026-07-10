@@ -140,7 +140,11 @@ class PdfExporter:
             elements.append(thumbnail)
         rows = [["Obs", "Observer", "Date", "Measurements"]]
         for observation in observations:
-            measurements = ", ".join(f"{k}={v}" for k, v in observation.measurements.items())
+            measurements = ", ".join(
+                f"{k}={v}"
+                for k, v in observation.measurements.items()
+                if not k.startswith("_")  # reserved internal keys stay out of reports
+            )
             rows.append(
                 [str(observation.id), observation.observer, _date(observation), measurements]
             )

@@ -220,6 +220,41 @@ def _stylesheet(c: dict[str, str]) -> str:
         color: {c["muted"]};
         background: transparent;
     }}
+    /* A compact segmented mode toggle — visually distinct from action buttons. */
+    QPushButton#modeSwitch {{
+        background: transparent;
+        color: {c["muted"]};
+        border: 1px solid {c["border"]};
+        border-radius: 12px;
+        padding: 4px 12px;
+    }}
+    QPushButton#modeSwitch:hover {{
+        color: {c["text"]};
+        background: {c["hover"]};
+    }}
+    QPushButton#modeSwitch:checked {{
+        background: {c["surface_hover"]};
+        color: {_ACCENT};
+        border: 1px solid {_ACCENT};
+    }}
+    /* An outlined accent button: as visible as #primary but clearly a different action. */
+    QPushButton#accentOutline {{
+        background: transparent;
+        color: {_ACCENT};
+        border: 2px solid {_ACCENT};
+        font-weight: 600;
+    }}
+    QPushButton#accentOutline:hover {{
+        background: {c["surface_hover"]};
+    }}
+    QPushButton#accentOutline:pressed {{
+        background: {c["hover"]};
+    }}
+    QPushButton#accentOutline:disabled {{
+        color: {c["muted"]};
+        border-color: {c["border"]};
+        background: transparent;
+    }}
     QPushButton#primary {{
         background: {_ACCENT};
         color: white;

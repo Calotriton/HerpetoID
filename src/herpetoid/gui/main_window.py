@@ -85,7 +85,12 @@ class MainWindow(QMainWindow):
         self._tabs.addTab(StatisticsScreen(state), "Statistics")
         self.setCentralWidget(self._tabs)
 
-        self._dock = ProjectDock(state, self.navigate_to)
+        self._dock = ProjectDock(
+            state,
+            self.navigate_to,
+            open_observation=self._open_observation,
+            open_individual=self._open_individual,
+        )
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self._dock)
 
         self._build_menus()
@@ -142,11 +147,13 @@ class MainWindow(QMainWindow):
         self._recent_menu.aboutToShow.connect(self._rebuild_recent_menu)
         file_menu.addMenu(self._recent_menu)
         file_menu.addSeparator()
+        # One single entry point for getting photos in: "Add Observations" (each image becomes an
+        # observation). Shared by the File menu, the Project menu and the toolbar.
         self._import_action = self._action(
-            "Import Images…",
+            "Add Observations…",
             lambda: self.open_dialog("Import"),
             shortcut="Ctrl+I",
-            icon_name="import",
+            icon_name="observation",
             needs_project=True,
         )
         file_menu.addAction(self._import_action)
@@ -159,13 +166,7 @@ class MainWindow(QMainWindow):
         file_menu.addAction(self._action("Exit", self.close, shortcut="Ctrl+Q"))
 
         project_menu = bar.addMenu("&Project")
-        self._new_observation_action = self._action(
-            "New Observation…",
-            lambda: self.open_dialog("Import"),
-            icon_name="observation",
-            needs_project=True,
-        )
-        project_menu.addAction(self._new_observation_action)
+        project_menu.addAction(self._import_action)
         self._identify_action = self._action(
             "Identify",
             lambda: self.navigate_to("Identification"),
@@ -231,7 +232,6 @@ class MainWindow(QMainWindow):
         toolbar.addAction(self._open_project_action)
         toolbar.addSeparator()
         toolbar.addAction(self._import_action)
-        toolbar.addAction(self._new_observation_action)
         toolbar.addAction(self._identify_action)
         self._export_toolbar_action = self._action(
             "Export", lambda: self._export_menu.popup(self.cursor().pos()), icon_name="export"
@@ -371,6 +371,16 @@ class MainWindow(QMainWindow):
                     identification.set_mode("compare" if name == "Comparison" else "identify")
                 return
 
+    def _open_observation(self, observation_id: int) -> None:
+        """Jump to the Observations tab with the given record selected (dock navigation)."""
+        self.navigate_to("Observations")
+        self.find_screen(ObservationsScreen).select_observation(observation_id)
+
+    def _open_individual(self, individual_id: int) -> None:
+        """Jump to the Individuals tab with the given record selected (dock navigation)."""
+        self.navigate_to("Individuals")
+        self.find_screen(IndividualBrowserScreen).select_individual(individual_id)
+
     def find_screen(self, cls: type[_ScreenT]) -> _ScreenT:
         """The tab widget of the given screen class (raises KeyError if it is not a tab)."""
         for i in range(self._tabs.count()):
@@ -393,7 +403,9 @@ class MainWindow(QMainWindow):
         if name == "Projects":
             return ScreenDialog("Projects", ProjectManagerScreen(state), self)
         if name == "Import":
-            return ScreenDialog("Import Images", ImageImportScreen(state), self, width=860, height=620)
+            return ScreenDialog(
+                "Add Observations", ImageImportScreen(state), self, width=860, height=620
+            )
         if name == "Settings":
             return ScreenDialog("Settings", SettingsScreen(state), self, width=420, height=220)
         if name == "Plugins":

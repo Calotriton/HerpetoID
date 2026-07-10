@@ -1,7 +1,7 @@
 [
   {"title": "Getting Started", "file": "00-getting-started.md"},
   {"title": "Projects", "file": "10-projects.md"},
-  {"title": "Importing Images", "file": "20-importing.md"},
+  {"title": "Adding Observations", "file": "20-importing.md"},
   {"title": "Identification", "file": "30-identification.md"},
   {"title": "Statistics", "file": "40-statistics.md"},
   {"title": "Exports", "file": "50-exports.md"},

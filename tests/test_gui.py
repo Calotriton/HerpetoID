@@ -130,6 +130,12 @@ def test_main_window_menus_toolbar_and_dialogs(
 
 
 def test_main_window_dock_and_theme_action(app_state: AppState, tmp_path: Path, qtbot) -> None:
+    from PIL import Image as PilImage
+
+    from herpetoid.domain import PluginRef
+    from herpetoid.gui.screens.individuals import IndividualBrowserScreen
+    from herpetoid.gui.screens.observations import ObservationsScreen
+
     window = MainWindow(app_state)
     qtbot.addWidget(window)
 
@@ -141,6 +147,37 @@ def test_main_window_dock_and_theme_action(app_state: AppState, tmp_path: Path, 
     assert "Observations (0)" in children
     assert "Individuals (0)" in children
     assert "Individuals: 0" in window._dock.stats_label.text()
+
+    # The tree lists the actual records; activating one jumps to the tab with it selected.
+    catalog = app_state.catalog
+    assert catalog is not None
+    species = catalog.ensure_species(
+        "Calotriton asper", module=PluginRef("calotriton_asper", "1.0")
+    )
+    assert species.id is not None
+    image = tmp_path / "i.png"
+    PilImage.fromarray(np.zeros((16, 16, 3), np.uint8)).save(image)
+    obs = catalog.import_observation(species.id, [image])
+    individual = catalog.create_individual(species.id, code="CA-042")
+    app_state.project_changed.emit()
+
+    root = window._dock.tree.topLevelItem(0)
+    obs_group = next(
+        root.child(i) for i in range(root.childCount()) if "Observations" in root.child(i).text(0)
+    )
+    assert obs_group.childCount() == 1
+    window._dock._on_item_activated(obs_group.child(0))
+    assert window.current_screen_name() == "Observations"
+    assert window.find_screen(ObservationsScreen)._current.id == obs.id
+
+    ind_group = next(
+        root.child(i) for i in range(root.childCount()) if "Individuals" in root.child(i).text(0)
+    )
+    assert ind_group.child(0).text(0) == "CA-042"
+    window._dock._on_item_activated(ind_group.child(0))
+    assert window.current_screen_name() == "Individuals"
+    individuals_screen = window.find_screen(IndividualBrowserScreen)
+    assert individuals_screen._individuals[individuals_screen.table.currentRow()].id == individual.id
 
     # The View menu's toggle action hides/shows the dock (needs a shown window to have effect).
     window.show()
@@ -270,19 +307,27 @@ def test_import_observer_gating_and_delete(
     screen = ImageImportScreen(app_state)
     qtbot.addWidget(screen)
 
-    # Add is gated on an observer name so the user can't import without one.
-    assert not screen.add_button.isEnabled()
-    screen.observer_edit.setText("AL")
-    assert screen.add_button.isEnabled()
-
     a, b = tmp_path / "a.png", tmp_path / "b.png"
     for path in (a, b):
         PilImage.fromarray(np.zeros((16, 16, 3), np.uint8)).save(path)
-    assert screen.import_files([a, b]) == 2
-    assert screen.gallery.count() == 2
     catalog = app_state.catalog
     assert catalog is not None
+
+    # Two-step import: selecting stages the files only; nothing enters the project until the
+    # explicit Import press — and Import is gated on an observer name.
+    screen.stage_files([a, b])
+    assert screen.staged_files() == [a, b]
+    assert catalog.observation_count() == 0  # staged, not imported
+    assert not screen.import_button.isEnabled()  # no observer yet
+    screen.observer_edit.setText("AL")
+    assert screen.import_button.isEnabled()
+    assert "2" in screen.import_button.text()
+
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: None)
+    screen._import_staged()
     assert catalog.observation_count() == 2
+    assert screen.staged_files() == []  # staging area cleared after a successful import
+    assert screen.gallery.count() == 2
 
     # Select all and delete (auto-confirm the dialog); the observations are removed.
     monkeypatch.setattr(
@@ -455,9 +500,15 @@ def test_dynamic_form_roundtrip_and_validation(qtbot) -> None:
     form = DynamicForm(fields)
     qtbot.addWidget(form)
 
+    # Untouched numeric editors are empty (no misleading 0.000 default) and read back as None.
+    fresh = form.values()
+    assert fresh["svl"] is None
+    assert fresh["weight"] is None
+
     form.set_values({"svl": 52.3, "sex": "female"})
     values = form.values()
     assert values["svl"] == 52.3
+    assert values["weight"] is None  # still untouched
     assert values["sex"] == "female"
     assert form.validate().ok
 
@@ -698,12 +749,14 @@ def test_nav_order_workflow(app_state: AppState, qtbot) -> None:
     assert names.index("Identification") < names.index("Statistics")
 
 
-def test_observation_code_creates_and_links_individual(
+def test_new_code_stays_pending_until_confirmed_in_identification(
     app_state: AppState, tmp_path: Path, qtbot
 ) -> None:
+    """Saving a new code must NOT create the individual — only Identification confirms it."""
     from PIL import Image as PilImage
 
     from herpetoid.api import ROI
+    from herpetoid.application.catalog_service import pending_code
     from herpetoid.domain import PluginRef
     from herpetoid.gui.screens.identification import IdentificationScreen
     from herpetoid.gui.screens.observations import ObservationsScreen
@@ -727,19 +780,46 @@ def test_observation_code_creates_and_links_individual(
     editor.viewer.set_roi(ROI.rectangle(5, 5, 40, 40))
     editor.save()
 
-    # The code created + linked an individual, which now shows up in the Individuals catalog.
+    # No individual yet: the code is pending, visible in the table with a "?" marker.
+    assert catalog.find_individual_by_code(species.id, "CA-777") is None
+    assert catalog.individual_count() == 0
+    reloaded = catalog.get_observation(obs.id)
+    assert reloaded is not None and reloaded.individual_id is None
+    assert pending_code(reloaded) == "CA-777"
+    assert "pending" in editor.status_label.text()
+    assert editor.table.item(0, 2).text() == "CA-777 ?"
+    assert editor.code_edit.text() == "CA-777"  # reloading the editor keeps the typed code
+
+    # The query picker labels it as pending; confirming via "Mark as new" creates it with that code.
+    screen = IdentificationScreen(app_state)
+    qtbot.addWidget(screen)
+    assert screen.query_combo.count() == 1
+    assert screen.query_combo.itemData(0) == obs.id
+    assert "CA-777 (pending)" in screen.query_combo.itemText(0)
+    screen._query_observation_id = obs.id
+    screen.mark_new()
     individual = catalog.find_individual_by_code(species.id, "CA-777")
     assert individual is not None
-    reloaded = catalog.get_observation(obs.id)
-    assert reloaded is not None and reloaded.individual_id == individual.id
-    assert any(i.code == "CA-777" for i in catalog.list_individuals())
+    linked = catalog.get_observation(obs.id)
+    assert linked is not None and linked.individual_id == individual.id
+    assert pending_code(linked) is None  # pending marker consumed
 
-    # A newly-saved observation with an ROI is selectable in Identification, labelled by its code.
-    candidates = IdentificationScreen(app_state)
-    qtbot.addWidget(candidates)
-    assert candidates.query_combo.count() == 1
-    assert candidates.query_combo.itemData(0) == obs.id
-    assert "CA-777" in candidates.query_combo.itemText(0)
+    # Marking again must NOT mint a duplicate individual.
+    screen._query_observation_id = obs.id
+    screen.mark_new()
+    assert catalog.individual_count() == 1
+    assert "Already assigned" in screen.status_label.text()
+
+    # A code that matches an existing individual still links directly on save.
+    other = catalog.import_observation(species.id, [image])
+    assert other.id is not None
+    app_state.project_changed.emit()  # refresh the editor's list with the new observation
+    editor.select_observation(other.id)
+    editor.code_edit.setText("CA-777")
+    editor.save()
+    relinked = catalog.get_observation(other.id)
+    assert relinked is not None and relinked.individual_id == individual.id
+    assert catalog.individual_count() == 1
 
 
 

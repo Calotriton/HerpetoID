@@ -46,15 +46,21 @@ class DynamicForm(QWidget):
 
     @staticmethod
     def _make_widget(field: FieldDefinition) -> QWidget:
+        # Numeric editors start *empty* (the range minimum is a sentinel rendered as blank text)
+        # instead of showing a misleading default of 0 — an untouched field reads back as None.
         match field.type:
             case FieldType.INTEGER:
                 spin = QSpinBox()
                 spin.setRange(-_NUMERIC_RANGE, _NUMERIC_RANGE)
+                spin.setSpecialValueText(" ")
+                spin.setValue(spin.minimum())
                 return spin
             case FieldType.FLOAT:
                 dspin = QDoubleSpinBox()
                 dspin.setRange(-_NUMERIC_RANGE, _NUMERIC_RANGE)
                 dspin.setDecimals(3)
+                dspin.setSpecialValueText(" ")
+                dspin.setValue(dspin.minimum())
                 return dspin
             case FieldType.BOOLEAN:
                 return QCheckBox()
@@ -78,7 +84,8 @@ class DynamicForm(QWidget):
         widget = self._widgets[field.key]
         match field.type:
             case FieldType.INTEGER | FieldType.FLOAT:
-                return widget.value()
+                value = widget.value()
+                return None if value == widget.minimum() else value  # untouched -> no value
             case FieldType.BOOLEAN:
                 return widget.isChecked()
             case FieldType.CHOICE:

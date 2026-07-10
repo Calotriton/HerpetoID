@@ -35,6 +35,7 @@ class ImageImportScreen(QWidget):
         super().__init__()
         self._state = state
         self._module_by_species: dict[str, PluginRef] = {}
+        self._staged: list[Path] = []
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -53,11 +54,19 @@ class ImageImportScreen(QWidget):
         form.addRow("Observer *", self.observer_edit)
         layout.addLayout(form)
 
+        # Two explicit steps: (1) select files — staged only, nothing touches the project yet;
+        # (2) press Import to actually add them. Closing the dialog without importing imports nothing.
         actions = QHBoxLayout()
-        self.add_button = QPushButton("Add images…")
-        self.add_button.setObjectName("primary")
+        self.add_button = QPushButton("Select images…")
         self.add_button.clicked.connect(self._choose_files)
         actions.addWidget(self.add_button)
+        self.import_button = QPushButton("Import 0 images")
+        self.import_button.setObjectName("primary")
+        self.import_button.clicked.connect(self._import_staged)
+        actions.addWidget(self.import_button)
+        self.clear_staged_button = QPushButton("Clear selection")
+        self.clear_staged_button.clicked.connect(self._clear_staged)
+        actions.addWidget(self.clear_staged_button)
         self.add_hint = QLabel("Enter an observer name to enable importing.")
         self.add_hint.setStyleSheet("color: palette(mid);")
         actions.addWidget(self.add_hint)
@@ -68,9 +77,22 @@ class ImageImportScreen(QWidget):
         actions.addWidget(self.delete_button)
         layout.addLayout(actions)
 
+        self.staged_label = QLabel("<b>Selected for import</b> (not imported yet)")
+        layout.addWidget(self.staged_label)
+        self.staged_list = QListWidget()
+        self.staged_list.setViewMode(QListWidget.ViewMode.IconMode)
+        self.staged_list.setIconSize(QSize(72, 72))
+        self.staged_list.setGridSize(QSize(88, 104))
+        self.staged_list.setUniformItemSizes(True)
+        self.staged_list.setTextElideMode(Qt.TextElideMode.ElideRight)
+        self.staged_list.setResizeMode(QListWidget.ResizeMode.Adjust)
+        self.staged_list.setMovement(QListWidget.Movement.Static)
+        self.staged_list.setFixedHeight(118)
+        layout.addWidget(self.staged_list)
+
         self.status_label = QLabel()
         layout.addWidget(self.status_label)
-        self.hint_label = QLabel("Open or create a project first (Projects tab).")
+        self.hint_label = QLabel("Open or create a project first (File → New/Open Project).")
         layout.addWidget(self.hint_label)
 
         self.gallery = QListWidget()
@@ -112,9 +134,18 @@ class ImageImportScreen(QWidget):
         self._update_delete_enabled()
 
     def _update_add_enabled(self) -> None:
-        ready = self._state.project is not None and bool(self.observer_edit.text().strip())
-        self.add_button.setEnabled(ready)
-        self.add_hint.setVisible(self._state.project is not None and not ready)
+        has_project = self._state.project is not None
+        has_observer = bool(self.observer_edit.text().strip())
+        self.add_button.setEnabled(has_project)
+        self.import_button.setEnabled(has_project and has_observer and bool(self._staged))
+        self.import_button.setText(
+            f"Import {len(self._staged)} image(s)" if self._staged else "Import 0 images"
+        )
+        self.clear_staged_button.setEnabled(bool(self._staged))
+        self.add_hint.setVisible(has_project and bool(self._staged) and not has_observer)
+        has_staged = bool(self._staged)
+        self.staged_label.setVisible(has_staged)
+        self.staged_list.setVisible(has_staged)
 
     def _update_delete_enabled(self) -> None:
         self.delete_button.setEnabled(bool(self.gallery.selectedItems()))
@@ -165,14 +196,41 @@ class ImageImportScreen(QWidget):
             self.gallery.addItem(item)
 
     def _choose_files(self) -> None:
-        files, _ = QFileDialog.getOpenFileNames(self, "Add images", "", _IMAGE_FILTER)
+        """Stage files for import — nothing is added to the project until Import is pressed."""
+        files, _ = QFileDialog.getOpenFileNames(self, "Select images", "", _IMAGE_FILTER)
         if not files:
             return
+        self.stage_files([Path(f) for f in files])
+
+    def stage_files(self, paths: list[Path]) -> None:
+        for path in paths:
+            if path not in self._staged:
+                self._staged.append(path)
+                pixmap = QPixmap(str(path))
+                icon = QIcon(pixmap) if not pixmap.isNull() else QIcon()
+                item = QListWidgetItem(icon, path.name)
+                item.setToolTip(str(path))
+                item.setTextAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
+                self.staged_list.addItem(item)
+        self._update_add_enabled()
+
+    def staged_files(self) -> list[Path]:
+        return list(self._staged)
+
+    def _clear_staged(self) -> None:
+        self._staged.clear()
+        self.staged_list.clear()
+        self._update_add_enabled()
+
+    def _import_staged(self) -> None:
+        if not self._staged:
+            return
         try:
-            count = self.import_files([Path(f) for f in files])
+            count = self.import_files(list(self._staged))
         except OSError as exc:
             QMessageBox.warning(self, "Import failed", str(exc))
             return
+        self._clear_staged()
         QMessageBox.information(self, "Import complete", f"Imported {count} image(s).")
 
     def _delete_selected(self) -> None:

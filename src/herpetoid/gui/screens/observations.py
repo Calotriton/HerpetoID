@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
 )
 
 from herpetoid.api import FieldDefinition, ROIKind, ROISpec
+from herpetoid.application.catalog_service import PENDING_CODE_KEY, pending_code
 from herpetoid.domain import Image, Location, Observation
 from herpetoid.gui.state import AppState
 from herpetoid.gui.widgets.dynamic_form import DynamicForm
@@ -161,7 +162,11 @@ class ObservationsScreen(QWidget):
         universal_form = QFormLayout(universal)
         universal_form.setContentsMargins(0, 0, 0, 0)
         self.code_edit = QLineEdit()
-        self.code_edit.setPlaceholderText("e.g. CA-001 (creates/links the individual)")
+        self.code_edit.setPlaceholderText("e.g. CA-001 — links a known individual")
+        self.code_edit.setToolTip(
+            "A code matching a cataloged individual links this observation to it.\n"
+            "A new code stays pending until you confirm it on the Identification tab."
+        )
         universal_form.addRow("Individual code", self.code_edit)
         self.observer_edit = QLineEdit()
         universal_form.addRow("Observer", self.observer_edit)
@@ -247,8 +252,12 @@ class ObservationsScreen(QWidget):
         self.table.setRowCount(len(self._observations))
         for row, obs in enumerate(self._observations):
             code = individuals.get(obs.individual_id, "") if obs.individual_id else ""
+            if not code and (pending := pending_code(obs)):
+                code = f"{pending} ?"  # typed but unconfirmed — confirm on the Identification tab
             for column, text in enumerate((str(obs.id), obs.observer, code)):
                 self.table.setItem(row, column, QTableWidgetItem(text))
+            if code.endswith(" ?") and (item := self.table.item(row, 2)) is not None:
+                item.setToolTip("Pending code — confirm it on the Identification tab.")
 
             has_roi = obs.id is not None and catalog.has_roi(obs.id)
             self.table.setItem(row, 3, self._tick_item(has_roi, "Saved with a ROI"))
@@ -282,6 +291,13 @@ class ObservationsScreen(QWidget):
         row = self.table.currentRow()
         if 0 <= row < len(self._observations):
             self._load_observation(self._observations[row])
+
+    def select_observation(self, observation_id: int) -> None:
+        """Select (and load) the observation with the given id, if present."""
+        for row, obs in enumerate(self._observations):
+            if obs.id == observation_id:
+                self.table.selectRow(row)
+                return
 
     def _load_observation(self, observation: Observation) -> None:
         self._current = observation
@@ -402,14 +418,22 @@ class ObservationsScreen(QWidget):
             observation.measurements = {
                 key: value for key, value in self._form.values().items() if value is not None
             }
-        # An entered code creates/links the individual, so it shows up in the Individuals tab and as
-        # the label in the Candidates/Comparison pickers. Clearing it unassigns the observation.
+        # A code matching a cataloged individual links the observation to it. A *new* code does NOT
+        # create the individual here — it is kept pending until the user confirms it on the
+        # Identification tab ("Mark query as new individual"). Clearing the code unassigns.
+        status = "Saved."
         code = self.code_edit.text().strip()
         if code:
-            individual = catalog.find_individual_by_code(
-                observation.species_id, code
-            ) or catalog.create_individual(observation.species_id, code=code)
-            observation.individual_id = individual.id
+            individual = catalog.find_individual_by_code(observation.species_id, code)
+            if individual is not None:
+                observation.individual_id = individual.id
+            else:
+                observation.individual_id = None
+                observation.measurements[PENDING_CODE_KEY] = code
+                status = (
+                    f"Saved. Code “{code}” is pending — confirm it as a new individual on the "
+                    "Identification tab."
+                )
         else:
             observation.individual_id = None
         catalog.update_observation(observation)
@@ -417,13 +441,13 @@ class ObservationsScreen(QWidget):
             roi = self.viewer.roi()
             if roi is not None:
                 catalog.set_image_roi(self._current_image.id, roi)
-        self.status_label.setText("Saved.")
+        self.status_label.setText(status)
         self._state.project_changed.emit()
 
     def _individual_code(self, observation: Observation) -> str:
         catalog = self._state.catalog
         if catalog is None or observation.individual_id is None:
-            return ""
+            return pending_code(observation) or ""
         individual = catalog.get_individual(observation.individual_id)
         return individual.code if individual is not None else ""
 

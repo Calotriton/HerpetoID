@@ -230,6 +230,13 @@ class IndividualBrowserScreen(QWidget):
         if 0 <= row < len(self._individuals):
             self._edit_individual(self._individuals[row])
 
+    def select_individual(self, individual_id: int) -> None:
+        """Select (and show) the individual with the given id, if present."""
+        for row, individual in enumerate(self._individuals):
+            if individual.id == individual_id:
+                self.table.selectRow(row)
+                return
+
     def _representative_observation(self, individual: Individual) -> Observation | None:
         catalog = self._state.catalog
         if catalog is None or individual.id is None:

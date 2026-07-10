@@ -21,11 +21,13 @@ observations and press **Compare** to see the same match-evidence view for that 
 
 ## Making a decision
 
-The software only *proposes* candidates — you decide:
+The software only *proposes* candidates — you decide. **Individuals are only created here**: a code
+typed in the Observations editor stays *pending* (shown as "CA-001 ?") until you confirm it.
 
-- **Confirm same individual** — links the query and the selected candidate to the same individual
-  (creating a new individual record if needed).
-- **Mark query as new individual** — creates a fresh individual for the query when it matches nothing.
+- **Confirm SAME individual as match** — links the query and the selected candidate to the same
+  individual (creating a new individual record if needed).
+- **Mark query as NEW individual** — creates a fresh individual for the query when it matches
+  nothing, reusing the pending code you typed in the editor (or auto-generating one).
 
 Confirmed individuals appear on the **Individuals** tab, and recaptures feed the **Statistics**.
 

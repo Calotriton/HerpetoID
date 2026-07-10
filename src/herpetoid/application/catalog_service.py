@@ -16,6 +16,17 @@ from herpetoid.domain import Image, Individual, Observation, PluginRef, Sex, Spe
 
 from .project_service import ProjectContext
 
+#: Reserved observation-metadata key holding an individual code the user typed in the editor but has
+#: not yet confirmed in the Identification tab. Keys starting with "_" are internal: they are hidden
+#: from exports and never come from a species module (module field keys are plain identifiers).
+PENDING_CODE_KEY = "_pending_code"
+
+
+def pending_code(observation: Observation) -> str | None:
+    """The observation's unconfirmed individual code, if any."""
+    value = observation.measurements.get(PENDING_CODE_KEY)
+    return str(value) if value else None
+
 
 class CatalogService:
     def __init__(self, project: ProjectContext) -> None:
