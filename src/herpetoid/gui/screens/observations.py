@@ -286,6 +286,11 @@ class ObservationsScreen(QWidget):
                     target = row
                     break
         self.table.selectRow(target)
+        if self._current is not self._observations[target]:
+            # selectRow fires no selection signal when the row index is unchanged, which would leave
+            # the editor holding a stale copy (e.g. its individual_id from before a confirm on the
+            # Identification tab) — saving that copy would silently drop the assignment.
+            self._load_observation(self._observations[target])
 
     def _on_select(self) -> None:
         row = self.table.currentRow()
@@ -420,13 +425,27 @@ class ObservationsScreen(QWidget):
             }
         # A code matching a cataloged individual links the observation to it. A *new* code does NOT
         # create the individual here — it is kept pending until the user confirms it on the
-        # Identification tab ("Mark query as new individual"). Clearing the code unassigns.
+        # Identification tab ("Mark query as new individual") — UNLESS the observation is already
+        # confirmed to an individual: then the new code simply renames that individual (the
+        # confirmed identity is kept; no re-identification needed). Clearing the code unassigns.
         status = "Saved."
         code = self.code_edit.text().strip()
+        assigned = (
+            catalog.get_individual(observation.individual_id)
+            if observation.individual_id is not None
+            else None
+        )
         if code:
             individual = catalog.find_individual_by_code(observation.species_id, code)
             if individual is not None:
                 observation.individual_id = individual.id
+                observation.measurements.pop(PENDING_CODE_KEY, None)
+            elif assigned is not None:
+                old_code = assigned.code
+                assigned.code = code
+                catalog.update_individual(assigned)
+                observation.measurements.pop(PENDING_CODE_KEY, None)
+                status = f"Saved. Individual “{old_code}” renamed to “{code}”."
             else:
                 observation.individual_id = None
                 observation.measurements[PENDING_CODE_KEY] = code

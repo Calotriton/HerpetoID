@@ -17,6 +17,7 @@ import pytest
 from PIL import Image as PilImage
 
 from herpetoid.api import ROI
+from herpetoid.application.catalog_service import pending_code
 from herpetoid.application.project_service import ProjectService
 from herpetoid.application.registry import PluginRegistry
 from herpetoid.application.settings import SettingsService
@@ -162,7 +163,10 @@ def test_full_photo_id_workflow(tmp_path: Path, qtbot) -> None:
     assert "inliers" in card.detail_label.text()  # match evidence back-filled on the card
 
     # Confirm the match: the base capture joins the rotated capture's individual; its own pending
-    # code CA-001 is superseded (no phantom third individual).
+    # code CA-001 is superseded (no phantom third individual). The base capture is open in the
+    # Observations editor while we confirm — the editor must pick up the new assignment (same-row
+    # refreshes fire no selection signal, which once left a stale, unassigned copy behind).
+    editor.select_observation(base_id)
     identification.confirm_same()
     linked = catalog.get_observation(base_id)
     rotated = catalog.get_observation(rotated_id)
@@ -174,7 +178,23 @@ def test_full_photo_id_workflow(tmp_path: Path, qtbot) -> None:
     assert "Individuals (2)" in dock_lines
     assert "Recaptures: 1" in window._dock.stats_label.text()  # base is now a recapture of CA-002
 
-    # 7) The Individuals catalog and the Statistics dashboard reflect the work.
+    # 7) Renaming a confirmed observation's code renames its individual in place — it must NOT
+    #    unassign the observation into a pending state that needs identification again. Deliberately
+    #    no re-select here: the editor still shows the row selected before the confirm above.
+    confirmed_individual_id = linked.individual_id
+    assert confirmed_individual_id is not None
+    assert editor._current is not None and editor._current.individual_id == confirmed_individual_id
+    editor.code_edit.setText("CA-002-renamed")
+    editor.save()
+    renamed = catalog.get_observation(base_id)
+    assert renamed is not None
+    assert renamed.individual_id == confirmed_individual_id  # still the same individual
+    assert pending_code(renamed) is None  # no pending re-identification
+    assert catalog.individual_count() == 2  # renamed, not duplicated
+    kept = catalog.get_individual(confirmed_individual_id)
+    assert kept is not None and kept.code == "CA-002-renamed"
+
+    # 8) The Individuals catalog and the Statistics dashboard reflect the work.
     individuals = window.find_screen(IndividualBrowserScreen)
     assert isinstance(individuals, IndividualBrowserScreen)
     individuals._refresh()
@@ -183,7 +203,7 @@ def test_full_photo_id_workflow(tmp_path: Path, qtbot) -> None:
     assert isinstance(statistics, StatisticsScreen)
     assert "Observations: 3" in statistics.summary_label.text()
 
-    # 8) The shell itself: the View toggle collapses the project panel and restores it.
+    # 9) The shell itself: the View toggle collapses the project panel and restores it.
     window.show()
     toggle = window._dock.toggleViewAction()
     assert window._dock.isVisible()
