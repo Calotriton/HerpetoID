@@ -30,12 +30,18 @@ from PySide6.QtWidgets import (
 )
 
 from herpetoid.api import FieldDefinition, ROIKind, ROISpec
-from herpetoid.application.catalog_service import PENDING_CODE_KEY, pending_code
+from herpetoid.application.catalog_service import (
+    PENDING_CODE_KEY,
+    SAVED_KEY,
+    is_saved,
+    pending_code,
+)
 from herpetoid.domain import Image, Location, Observation
 from herpetoid.gui.state import AppState
 from herpetoid.gui.widgets.dynamic_form import DynamicForm
 from herpetoid.gui.widgets.image_viewer import ndarray_to_qimage
 from herpetoid.gui.widgets.roi_image_viewer import RoiImageViewer
+from herpetoid.gui.widgets.toast import Toast
 
 # Species is intentionally omitted from this list (it's redundant per-row and shown in the editor).
 # "Saved" = has a saved ROI; "Ident." = assigned to an individual (queried & identified);
@@ -61,6 +67,7 @@ class ObservationsScreen(QWidget):
         self._current: Observation | None = None
         self._current_image: Image | None = None
         self._form: DynamicForm | None = None
+        self._locked = False  # saved observations open read-only behind the "Edit" button
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -201,7 +208,7 @@ class ObservationsScreen(QWidget):
         bottom.addWidget(self.status_label, 1)
         self.save_button = QPushButton("Save observation")
         self.save_button.setObjectName("primary")
-        self.save_button.clicked.connect(self.save)
+        self.save_button.clicked.connect(self._on_save_clicked)
         bottom.addWidget(self.save_button)
         form_panel_layout.addLayout(bottom)
         form_panel.setMinimumWidth(260)
@@ -214,6 +221,7 @@ class ObservationsScreen(QWidget):
         splitter.setSizes([430, 590, 320])
         layout.addWidget(splitter)
 
+        self.toast = Toast(self)
         self._set_editing_enabled(False)
         state.project_changed.connect(self._refresh)
         self._refresh()
@@ -322,6 +330,8 @@ class ObservationsScreen(QWidget):
         self._build_form(observation.species_id, observation.measurements)
         self._configure_roi_tool(observation.species_id)
         self._load_image(observation)
+        # Already-saved observations open locked behind "Edit"; fresh ones are directly editable.
+        self._apply_locked(is_saved(observation))
 
     def _build_form(self, species_id: int, values: dict[str, Any]) -> None:
         if self._form is not None:
@@ -401,11 +411,20 @@ class ObservationsScreen(QWidget):
         if self._current_image.id is not None:
             self.viewer.set_roi(catalog.get_image_roi(self._current_image.id))
 
+    def _on_save_clicked(self) -> None:
+        """The one bottom button: saves when editable, unlocks for editing when locked."""
+        if self._locked:
+            self._apply_locked(False)
+            self.status_label.setText("Editing — make your changes and press “Save changes”.")
+            return
+        self.save()
+
     def save(self) -> None:
         observation = self._current
         catalog = self._state.catalog
         if observation is None or catalog is None:
             return
+        was_saved = is_saved(observation)
         observation.observer = self.observer_edit.text().strip()
         qdate = self.date_edit.date()
         observation.observed_at = date(qdate.year(), qdate.month(), qdate.day())
@@ -423,12 +442,14 @@ class ObservationsScreen(QWidget):
             observation.measurements = {
                 key: value for key, value in self._form.values().items() if value is not None
             }
+        observation.measurements[SAVED_KEY] = True
         # A code matching a cataloged individual links the observation to it. A *new* code does NOT
         # create the individual here — it is kept pending until the user confirms it on the
         # Identification tab ("Mark query as new individual") — UNLESS the observation is already
         # confirmed to an individual: then the new code simply renames that individual (the
         # confirmed identity is kept; no re-identification needed). Clearing the code unassigns.
-        status = "Saved."
+        status = "Edits saved successfully." if was_saved else "Observation saved successfully."
+        headline = status
         code = self.code_edit.text().strip()
         assigned = (
             catalog.get_individual(observation.individual_id)
@@ -445,12 +466,12 @@ class ObservationsScreen(QWidget):
                 assigned.code = code
                 catalog.update_individual(assigned)
                 observation.measurements.pop(PENDING_CODE_KEY, None)
-                status = f"Saved. Individual “{old_code}” renamed to “{code}”."
+                status = f"{headline} Individual “{old_code}” renamed to “{code}”."
             else:
                 observation.individual_id = None
                 observation.measurements[PENDING_CODE_KEY] = code
                 status = (
-                    f"Saved. Code “{code}” is pending — confirm it as a new individual on the "
+                    f"{headline} Code “{code}” is pending — confirm it as a new individual on the "
                     "Identification tab."
                 )
         else:
@@ -460,8 +481,36 @@ class ObservationsScreen(QWidget):
             roi = self.viewer.roi()
             if roi is not None:
                 catalog.set_image_roi(self._current_image.id, roi)
-        self.status_label.setText(status)
+        missing = self._missing_details()
+        if missing:
+            missing_note = f"Missing information: {', '.join(missing)}."
+            self.toast.show_message(f"{headline}\n{missing_note}")
+            self.status_label.setText(f"{status} {missing_note}")
+        else:
+            self.toast.show_message(f"{headline}\nAll details are complete.")
+            self.status_label.setText(status)
         self._state.project_changed.emit()
+
+    def _missing_details(self) -> list[str]:
+        """Human-readable names of the details the user has not filled in yet."""
+        missing: list[str] = []
+        if not self.code_edit.text().strip():
+            missing.append("Individual code")
+        if not self.observer_edit.text().strip():
+            missing.append("Observer")
+        if not self.notes_edit.text().strip():
+            missing.append("Notes")
+        if _parse_float(self.lat_edit.text()) is None:
+            missing.append("Latitude")
+        if _parse_float(self.lon_edit.text()) is None:
+            missing.append("Longitude")
+        if not self.location_edit.text().strip():
+            missing.append("Location")
+        if self._form is not None:
+            missing.extend(self._form.missing_labels())
+        if self.viewer.roi() is None:
+            missing.append("ROI")
+        return missing
 
     def _individual_code(self, observation: Observation) -> str:
         catalog = self._state.catalog
@@ -500,6 +549,30 @@ class ObservationsScreen(QWidget):
         ):
             widget.setEnabled(enabled)
 
+    def _apply_locked(self, locked: bool) -> None:
+        """Lock (read-only behind "Edit") or unlock the editor for the current observation."""
+        self._locked = locked
+        if locked:
+            self.draw_button.setChecked(False)
+        for widget in (
+            self.code_edit,
+            self.observer_edit,
+            self.date_edit,
+            self.notes_edit,
+            self.lat_edit,
+            self.lon_edit,
+            self.location_edit,
+            self.draw_button,
+        ):
+            widget.setEnabled(not locked)
+        if self._form is not None:
+            self._form.setEnabled(not locked)
+        if locked:
+            self.save_button.setText("Edit")
+        else:
+            already_saved = self._current is not None and is_saved(self._current)
+            self.save_button.setText("Save changes" if already_saved else "Save observation")
+
     def _clear_editor(self) -> None:
         self._current = None
         self._current_image = None
@@ -517,4 +590,6 @@ class ObservationsScreen(QWidget):
         if self._form is not None:
             self._form.setParent(None)
             self._form = None
+        self._locked = False
+        self.save_button.setText("Save observation")
         self._set_editing_enabled(False)

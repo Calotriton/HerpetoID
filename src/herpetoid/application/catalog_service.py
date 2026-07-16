@@ -21,11 +21,21 @@ from .project_service import ProjectContext
 #: from exports and never come from a species module (module field keys are plain identifiers).
 PENDING_CODE_KEY = "_pending_code"
 
+#: Reserved observation-metadata key set the first time the user explicitly saves the observation in
+#: the editor. It drives the editor's Save/Edit cycle: saved observations open locked behind an
+#: "Edit" button instead of a blank "Save observation" one.
+SAVED_KEY = "_saved"
+
 
 def pending_code(observation: Observation) -> str | None:
     """The observation's unconfirmed individual code, if any."""
     value = observation.measurements.get(PENDING_CODE_KEY)
     return str(value) if value else None
+
+
+def is_saved(observation: Observation) -> bool:
+    """True once the user has explicitly saved this observation in the editor."""
+    return bool(observation.measurements.get(SAVED_KEY))
 
 
 class CatalogService:

@@ -119,14 +119,38 @@ def test_full_photo_id_workflow(tmp_path: Path, qtbot) -> None:
     for observation_id, code in code_by_id.items():
         editor.select_observation(observation_id)
         assert editor._current is not None and editor._current.id == observation_id
+        assert editor.save_button.text() == "Save observation"  # never saved -> editable
         editor.code_edit.setText(code)
         editor.viewer.set_roi(ROI.rectangle(10, 10, 236, 236))
         editor.save()
+        # Saving pops a toast: success + what is still missing (observer, notes, SVL, …).
+        assert not editor.toast.isHidden()
+        assert "Observation saved successfully" in editor.toast.text()
+        assert "Missing information" in editor.toast.text()
+        for missing in ("Observer", "Notes", "SVL"):
+            assert missing in editor.toast.text()
+        assert "Individual code" not in editor.toast.text()  # a code was typed
+        assert "ROI" not in editor.toast.text()  # a ROI was marked
 
     # Saving does NOT create individuals — the typed codes are pending until the user confirms
     # them on the Identification tab. All three are queryable (they have a ROI).
     assert catalog.individual_count() == 0
     assert len(catalog.comparable_observations()) == 3
+
+    # A saved observation re-opens LOCKED behind an "Edit" button; clicking it unlocks the form
+    # ("Save changes"), and re-saving reports "Edits saved" while keeping the same observation.
+    assert editor.save_button.text() == "Edit"
+    assert not editor.observer_edit.isEnabled()
+    editor.save_button.click()  # enter edit mode
+    assert editor.save_button.text() == "Save changes"
+    assert editor.observer_edit.isEnabled()
+    editor.observer_edit.setText("AL")
+    editor.save_button.click()  # save the edits
+    assert "Edits saved successfully" in editor.toast.text()
+    assert editor.save_button.text() == "Edit"  # locked again after saving
+    edited = catalog.get_observation(observation_id_for("other.png"))
+    assert edited is not None and edited.observer == "AL"
+    assert pending_code(edited) == "CA-003"  # the edit kept the observation's pending code
 
     # 5) Enrol the two known captures: identify each (an empty catalog yields no candidates) and
     #    confirm them as NEW individuals — this is the step that actually creates CA-002 / CA-003.
@@ -141,7 +165,16 @@ def test_full_photo_id_workflow(tmp_path: Path, qtbot) -> None:
     identification.query_combo.setCurrentIndex(identification.query_combo.findData(rotated_id))
     identification.identify()
     assert not identification._candidates  # nothing enrolled yet to match against
-    identification.mark_new()
+    # An empty catalog would look like "nothing happened" — instead a dialog offers to enrol this
+    # query as the FIRST individual of the project (or cancel to go back).
+    first_dialog = identification._first_dialog
+    assert first_dialog is not None and first_dialog.isVisible()
+    assert identification._first_mark_button is not None
+    identification._first_mark_button.click()
+    # The non-default code CA-002 was already typed in the editor, so no code prompt is needed.
+    assert identification._first_code_dialog is None
+    assert catalog.individual_count() == 1
+    assert "first individual" in identification.status_label.text()
     identification.query_combo.setCurrentIndex(identification.query_combo.findData(other_id))
     identification.identify()  # CA-002 is enrolled now, so a (weak) candidate may rank
     identification.mark_new()  # …but the scientist decides this is a different animal
@@ -184,6 +217,8 @@ def test_full_photo_id_workflow(tmp_path: Path, qtbot) -> None:
     confirmed_individual_id = linked.individual_id
     assert confirmed_individual_id is not None
     assert editor._current is not None and editor._current.individual_id == confirmed_individual_id
+    assert editor.save_button.text() == "Edit"  # saved earlier -> locked; unlock to rename
+    editor.save_button.click()
     editor.code_edit.setText("CA-002-renamed")
     editor.save()
     renamed = catalog.get_observation(base_id)

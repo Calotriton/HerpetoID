@@ -337,6 +337,15 @@ def _stylesheet(c: dict[str, str]) -> str:
         color: {c["muted"]};
     }}
 
+    /* --- Toast notifications --- */
+    QLabel#toast {{
+        background: {_ACCENT};
+        color: white;
+        border-radius: 9px;
+        padding: 10px 16px;
+        font-weight: 600;
+    }}
+
     /* --- Misc --- */
     QSplitter::handle {{ background: transparent; }}
     QSplitter::handle:horizontal {{ width: 8px; }}

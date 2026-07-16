@@ -12,13 +12,18 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
+    QAbstractButton,
     QButtonGroup,
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMessageBox,
     QProgressBar,
     QPushButton,
     QSplitter,
@@ -114,12 +119,42 @@ class _CandidateCard(QFrame):
         self.detail_label.setText(text)
 
 
+class _FirstIndividualCodeDialog(QDialog):
+    """Asks for the first individual's code when none was typed in the Observations editor."""
+
+    def __init__(self, default_code: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Code for the first individual")
+        layout = QVBoxLayout(self)
+        label = QLabel(
+            "No individual code was entered for this observation. Write one now, or keep the "
+            "suggested default."
+        )
+        label.setWordWrap(True)
+        layout.addWidget(label)
+        self.code_edit = QLineEdit(default_code)
+        self.code_edit.selectAll()
+        layout.addWidget(self.code_edit)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def code(self) -> str:
+        return self.code_edit.text().strip()
+
+
 class IdentificationScreen(QWidget):
     def __init__(self, state: AppState) -> None:
         super().__init__()
         self._state = state
         self._candidates: list[Candidate] = []
         self._query_observation_id: int | None = None
+        self._first_dialog: QMessageBox | None = None
+        self._first_mark_button: QPushButton | None = None
+        self._first_code_dialog: _FirstIndividualCodeDialog | None = None
         self._top_k: int = 0
         self._pair_cache: dict[int, PairwiseComparison] = {}
         self._species_names: dict[int | None, str] = {}
@@ -454,6 +489,8 @@ class IdentificationScreen(QWidget):
             else "No other observations to compare against yet."
         )
         self._update_action_buttons()
+        if not self._candidates:
+            self._maybe_offer_first_individual()
 
     def _thumbnail_for(self, candidate: Candidate) -> QPixmap | None:
         if candidate.observation.id is None:
@@ -548,6 +585,9 @@ class IdentificationScreen(QWidget):
         Reuses the code the user typed in the Observations editor (kept *pending* until now); if the
         query is already assigned, it does nothing rather than minting a duplicate individual.
         """
+        self._assign_query_as_new()
+
+    def _assign_query_as_new(self, code_override: str | None = None, *, first: bool = False) -> None:
         catalog = self._state.catalog
         if catalog is None or self._query_observation_id is None:
             return
@@ -559,8 +599,8 @@ class IdentificationScreen(QWidget):
             code = existing.code if existing is not None else "?"
             self.status_label.setText(f"Already assigned to individual {code}.")
             return
-        code_hint = pending_code(query)
-        if code_hint is not None:
+        code_hint = code_override or pending_code(query)
+        if code_hint:
             individual = catalog.find_individual_by_code(
                 query.species_id, code_hint
             ) or catalog.create_individual(query.species_id, code=code_hint)
@@ -568,8 +608,70 @@ class IdentificationScreen(QWidget):
             individual = catalog.create_individual(query.species_id)
         catalog.link_observation(self._query_observation_id, individual.id)
         self._clear_pending_code(self._query_observation_id)
-        self.status_label.setText(f"Created individual {individual.code}.")
+        # Emit first: the refresh it triggers resets the status label, and this outcome must stay
+        # visible afterwards.
         self._state.project_changed.emit()
+        self.status_label.setText(
+            f"Marked as the first individual of the project: {individual.code}."
+            if first
+            else f"Created individual {individual.code}."
+        )
+
+    # -- first individual of the project -------------------------------------------------------------
+    def _maybe_offer_first_individual(self) -> None:
+        """Offer to enrol the query as the project's first individual.
+
+        Shown when an identification run yields no candidates because the catalog holds no
+        individuals yet — otherwise it looks like "nothing happened". Non-modal (``open()``) so the
+        workflow keeps updating live and headless test drivers are not blocked.
+        """
+        catalog = self._state.catalog
+        query_id = self._query_observation_id
+        if catalog is None or query_id is None or catalog.individual_count() > 0:
+            return
+        query = catalog.get_observation(query_id)
+        if query is None or query.individual_id is not None:
+            return
+        box = QMessageBox(self)
+        box.setWindowTitle("First individual of the project")
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setText(
+            "There are no cataloged individuals to compare against yet — this appears to be the "
+            "first individual of the project."
+        )
+        box.setInformativeText("Mark it as the first individual, or cancel to go back.")
+        self._first_mark_button = box.addButton(
+            "Mark as first individual", QMessageBox.ButtonRole.AcceptRole
+        )
+        box.addButton(QMessageBox.StandardButton.Cancel)
+        box.buttonClicked.connect(self._on_first_dialog_clicked)
+        self._first_dialog = box
+        self.status_label.setText(
+            "No previous captures to compare against — the first individual of the project?"
+        )
+        box.open()
+
+    def _on_first_dialog_clicked(self, button: QAbstractButton) -> None:
+        if button is not self._first_mark_button:
+            return
+        catalog = self._state.catalog
+        query_id = self._query_observation_id
+        if catalog is None or query_id is None:
+            return
+        query = catalog.get_observation(query_id)
+        if query is None:
+            return
+        code = pending_code(query)
+        if code:
+            # A non-default code was already entered in the Observations editor — use it.
+            self._assign_query_as_new(code, first=True)
+            return
+        dialog = _FirstIndividualCodeDialog("IND-001", self)
+        dialog.accepted.connect(
+            lambda: self._assign_query_as_new(dialog.code() or None, first=True)
+        )
+        self._first_code_dialog = dialog
+        dialog.open()
 
     def _clear_pending_code(self, observation_id: int) -> None:
         catalog = self._state.catalog

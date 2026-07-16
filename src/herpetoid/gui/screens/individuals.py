@@ -324,7 +324,15 @@ class IndividualBrowserScreen(QWidget):
             return
         catalog.update_individual(dialog.updated_individual())
         new_measurements = dialog.measurement_values()
-        if representative is not None and new_measurements != representative.measurements:
-            representative.measurements = new_measurements
-            catalog.update_observation(representative)
+        if representative is not None:
+            # Reserved internal keys ("_saved", "_pending_code", …) are not part of the form and
+            # must survive the rewrite of the representative observation's measurements.
+            new_measurements |= {
+                key: value
+                for key, value in representative.measurements.items()
+                if key.startswith("_")
+            }
+            if new_measurements != representative.measurements:
+                representative.measurements = new_measurements
+                catalog.update_observation(representative)
         self._state.project_changed.emit()

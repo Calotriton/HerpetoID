@@ -1008,6 +1008,67 @@ def test_identification_screen_unassigned_query_selectable(
     assert "Calotriton asper" in screen.query_species_label.text()
 
 
+def test_identification_first_individual_dialog_and_code_prompt(
+    app_state: AppState, tmp_path: Path, qtbot
+) -> None:
+    """Identifying against an empty catalog offers to enrol the query as the FIRST individual.
+
+    Cancel backs out without creating anything; accepting with no code typed prompts for one
+    (prefilled with the default), and the typed code is used for the created individual.
+    """
+    from PySide6.QtWidgets import QMessageBox
+
+    from herpetoid.api import ROI
+    from herpetoid.domain import PluginRef
+    from herpetoid.gui.screens.identification import IdentificationScreen
+
+    app_state.create_project(tmp_path / "proj", "P")
+    catalog = app_state.catalog
+    assert catalog is not None
+    species = catalog.ensure_species(
+        "Calotriton asper", module=PluginRef("calotriton_asper", "1.0")
+    )
+    assert species.id is not None
+    image = tmp_path / "a.png"
+    _save_gray(image, _spot_pattern(3))
+    obs = catalog.import_observation(species.id, [image])  # no individual code typed anywhere
+    assert obs.id is not None
+    stored = catalog.images_for(obs.id)[0]
+    assert stored.id is not None
+    catalog.set_image_roi(stored.id, ROI.rectangle(10, 10, 236, 236))
+
+    screen = IdentificationScreen(app_state)
+    qtbot.addWidget(screen)
+    screen.query_combo.setCurrentIndex(screen.query_combo.findData(obs.id))
+    screen.algorithm_combo.setCurrentIndex(screen.algorithm_combo.findData("orb"))
+    screen.identify()
+    assert not screen._candidates
+    dialog = screen._first_dialog
+    assert dialog is not None and dialog.isVisible()
+    assert "first individual" in screen.status_label.text()
+
+    # Cancel goes back without creating anything.
+    cancel = dialog.button(QMessageBox.StandardButton.Cancel)
+    assert cancel is not None
+    cancel.click()
+    assert catalog.individual_count() == 0
+
+    # Run again and accept: no code was typed, so a prompt appears prefilled with the default.
+    screen.identify()
+    assert screen._first_mark_button is not None
+    screen._first_mark_button.click()
+    code_dialog = screen._first_code_dialog
+    assert code_dialog is not None and code_dialog.isVisible()
+    assert code_dialog.code_edit.text() == "IND-001"
+    code_dialog.code_edit.setText("FIRST-01")
+    code_dialog.accept()
+    individual = catalog.find_individual_by_code(species.id, "FIRST-01")
+    assert individual is not None
+    linked = catalog.get_observation(obs.id)
+    assert linked is not None and linked.individual_id == individual.id
+    assert "first individual" in screen.status_label.text()
+
+
 def test_identification_screen_compare_mode(app_state: AppState, tmp_path: Path, qtbot) -> None:
     from herpetoid.gui.screens.identification import IdentificationScreen
 

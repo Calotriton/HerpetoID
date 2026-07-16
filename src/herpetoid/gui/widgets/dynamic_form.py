@@ -118,6 +118,11 @@ class DynamicForm(QWidget):
                 case _:
                     widget.setText(str(value))
 
+    def missing_labels(self) -> list[str]:
+        """Labels of the fields the user has not filled in (checkboxes always count as filled)."""
+        values = self.values()
+        return [field.label for field in self._fields if values[field.key] is None]
+
     def validate(self) -> ValidationResult:
         values = self.values()
         result = ValidationResult.success()
