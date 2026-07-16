@@ -1,6 +1,7 @@
 # Adding Observations
 
-Open **Add Observations** (toolbar, or File → Add Observations…, Ctrl+I) with a project open:
+Open **Add Observations** (the button next to the tabs, or File → Add Observations…, Ctrl+I) with a
+project open:
 
 1. Choose the **species** from the drop-down (species come from the installed species modules).
 2. Enter the **observer** name (required before importing).

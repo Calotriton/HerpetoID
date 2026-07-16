@@ -17,7 +17,7 @@ cannot be matched to each other.
 Inside the project folder: `project.db` plus the `images/` folder. The whole folder is portable.
 
 **Can I change the look of the app?**
-Yes — open **Settings** (toolbar or Tools menu): *Mode* switches System / Light / Dark, and *Style*
+Yes — open **Settings** (Tools menu): *Mode* switches System / Light / Dark, and *Style*
 picks a color preset (Brook Teal, Forest Moss, River Slate, Sunset Clay). Both apply immediately and
 are remembered. The same options live under **View → Theme / Style**.
 

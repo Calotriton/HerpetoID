@@ -242,8 +242,12 @@ class IdentificationScreen(QWidget):
 
         controls.addWidget(self._control_stack, 1)
         controls.addSpacing(14)
-        controls.addWidget(QLabel("Algorithm:"))
+        algorithm_caption = QLabel("Algorithm:")
+        algorithm_caption.setStyleSheet("color: palette(mid);")
+        controls.addWidget(algorithm_caption)
+        # The one place the matching algorithm is chosen; the pick is remembered across sessions.
         self.algorithm_combo = QComboBox()
+        self.algorithm_combo.currentIndexChanged.connect(self._on_algorithm_changed)
         controls.addWidget(self.algorithm_combo)
         return controls
 
@@ -423,14 +427,21 @@ class IdentificationScreen(QWidget):
             self.species_label.setText("")
 
     def _populate_algorithms(self) -> None:
+        self.algorithm_combo.blockSignals(True)  # repopulation is not a user choice — don't persist
         self.algorithm_combo.clear()
         for record in self._state.registry.algorithms(enabled_only=True):
             self.algorithm_combo.addItem(record.descriptor.name, record.descriptor.algorithm_id)
-        default = self._state.default_algorithm_id
-        if default is not None:
+        default = self._state.settings.settings.default_algorithm_id
+        if default:
             index = self.algorithm_combo.findData(default)
             if index >= 0:
                 self.algorithm_combo.setCurrentIndex(index)
+        self.algorithm_combo.blockSignals(False)
+
+    def _on_algorithm_changed(self) -> None:
+        algorithm_id = self.algorithm_combo.currentData()
+        if algorithm_id is not None:
+            self._state.settings.set_default_algorithm(str(algorithm_id))
 
     # -- identify ----------------------------------------------------------------------------------
     def identify(self) -> None:

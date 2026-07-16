@@ -6,6 +6,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from PySide6.QtCore import Qt
 
 from herpetoid.application.project_service import ProjectService
 from herpetoid.application.registry import PluginRegistry
@@ -84,7 +85,7 @@ def test_main_window_navigation(app_state: AppState, qtbot) -> None:
     assert isinstance(window.open_dialog("Plugins"), PluginManagerScreen)
 
 
-def test_main_window_menus_toolbar_and_dialogs(
+def test_main_window_menus_corner_button_and_dialogs(
     app_state: AppState, tmp_path: Path, qtbot
 ) -> None:
     from herpetoid.gui.screens.identification import IdentificationScreen
@@ -94,8 +95,12 @@ def test_main_window_menus_toolbar_and_dialogs(
     window = MainWindow(app_state)
     qtbot.addWidget(window)
 
+    # One command surface: the menus (the old icon toolbar only duplicated them). The Plugin
+    # Manager lives under Tools rather than a one-item top-level menu.
     menus = [a.text().replace("&", "") for a in window.menuBar().actions()]
-    assert menus == ["File", "Project", "View", "Tools", "Plugins", "Help"]
+    assert menus == ["File", "Project", "View", "Tools", "Help"]
+    tools_texts = [a.text() for a in window._tools_menu.actions()]
+    assert tools_texts == ["Settings…", "Plugin Manager…"]
 
     # Dialogs host the secondary screens and are cached (same instance on re-open).
     settings_screen = window.open_dialog("Settings")
@@ -104,29 +109,41 @@ def test_main_window_menus_toolbar_and_dialogs(
     assert isinstance(window.open_dialog("Import"), ImageImportScreen)
     assert isinstance(window.open_dialog("Projects"), ProjectManagerScreen)
 
-    # Project-dependent actions are disabled without a project and enabled with one.
+    # Project-dependent actions (and the corner Add Observations button on the tab row) are
+    # disabled without a project and enabled with one.
     assert not window._import_action.isEnabled()
+    assert not window.import_button.isEnabled()
+    assert window._tabs.cornerWidget(Qt.Corner.TopRightCorner) is not None
     app_state.create_project(tmp_path / "proj", "P")
     assert window._import_action.isEnabled()
     assert window._identify_action.isEnabled()
+    assert window.import_button.isEnabled()
+    window._dialogs["Import"].hide()
+    window.import_button.click()  # the corner button opens the Import dialog
+    assert window._dialogs["Import"].isVisible()
 
     # The Recent Projects submenu lists the (still-existing) bundle.
     window._rebuild_recent_menu()
     recent_texts = [a.text() for a in window._recent_menu.actions()]
     assert any("proj" in t for t in recent_texts)
 
-    # The toolbar's global combos publish session defaults that screens pre-select on refresh.
-    assert window.algorithm_combo.count() >= 1
-    assert window.species_combo.count() >= 1
-    assert app_state.default_algorithm_id == window.algorithm_combo.currentData()
+    # The algorithm is chosen in exactly one place — the Identification tab — and the pick is
+    # persisted as the default that fresh screens pre-select.
     identification = window.find_screen(IdentificationScreen)
     assert isinstance(identification, IdentificationScreen)
-    assert identification.algorithm_combo.currentData() == app_state.default_algorithm_id
+    assert identification.algorithm_combo.count() >= 1
+    identification._on_algorithm_changed()  # what the combo's change signal invokes
+    picked = identification.algorithm_combo.currentData()
+    assert app_state.settings.settings.default_algorithm_id == picked
+    fresh = IdentificationScreen(app_state)
+    qtbot.addWidget(fresh)
+    assert fresh.algorithm_combo.currentData() == picked
 
     # Close Project via state clears the window title back to the default.
     app_state.close_project()
     assert window.windowTitle() == "HerpetoID"
     assert not window._import_action.isEnabled()
+    assert not window.import_button.isEnabled()
 
 
 def test_main_window_dock_and_theme_action(app_state: AppState, tmp_path: Path, qtbot) -> None:

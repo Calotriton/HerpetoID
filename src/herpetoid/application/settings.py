@@ -17,6 +17,7 @@ class Settings:
     style: str = "teal"  # visual style preset id (see herpetoid.gui.theme.STYLES)
     language: str = "en"
     default_top_k: int = 3
+    default_algorithm_id: str = ""  # last algorithm picked on the Identification tab
     recent_projects: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -25,6 +26,7 @@ class Settings:
             "style": self.style,
             "language": self.language,
             "default_top_k": self.default_top_k,
+            "default_algorithm_id": self.default_algorithm_id,
             "recent_projects": list(self.recent_projects),
         }
 
@@ -35,6 +37,7 @@ class Settings:
             style=str(data.get("style", "teal")),
             language=str(data.get("language", "en")),
             default_top_k=int(data.get("default_top_k", 3)),
+            default_algorithm_id=str(data.get("default_algorithm_id", "")),
             recent_projects=[str(p) for p in data.get("recent_projects", [])],
         )
 
@@ -68,6 +71,10 @@ class SettingsService:
 
     def set_style(self, style: str) -> None:
         self._settings.style = style
+        self._store.save(self._settings)
+
+    def set_default_algorithm(self, algorithm_id: str) -> None:
+        self._settings.default_algorithm_id = algorithm_id
         self._store.save(self._settings)
 
     def add_recent_project(self, path: str) -> None:

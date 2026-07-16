@@ -14,18 +14,17 @@ from pathlib import Path
 from typing import TypeVar
 
 from PySide6.QtCore import QEvent, Qt
-from PySide6.QtGui import QAction, QActionGroup, QKeySequence
+from PySide6.QtGui import QAction, QActionGroup, QColor, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
-    QComboBox,
     QFileDialog,
+    QHBoxLayout,
     QLabel,
     QMainWindow,
     QMenu,
     QMessageBox,
-    QSizePolicy,
+    QPushButton,
     QTabWidget,
-    QToolBar,
     QWidget,
 )
 
@@ -94,7 +93,7 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self._dock)
 
         self._build_menus()
-        self._build_toolbar()
+        self._build_tab_corner()
         self._apply_icons()
 
         self._species_status = QLabel()
@@ -214,13 +213,11 @@ class MainWindow(QMainWindow):
                 self._action(name, partial(self.navigate_to, name), shortcut=f"Ctrl+{index + 1}")
             )
 
-        tools_menu = bar.addMenu("&Tools")
-        tools_menu.addAction(
+        self._tools_menu = bar.addMenu("&Tools")
+        self._tools_menu.addAction(
             self._action("Settings…", lambda: self.open_dialog("Settings"), icon_name="settings")
         )
-
-        plugins_menu = bar.addMenu("P&lugins")
-        plugins_menu.addAction(
+        self._tools_menu.addAction(
             self._action("Plugin Manager…", lambda: self.open_dialog("Plugins"))
         )
 
@@ -232,57 +229,23 @@ class MainWindow(QMainWindow):
         )
         help_menu.addAction(self._action("About HerpetoID", self._about))
 
-    def _build_toolbar(self) -> None:
-        toolbar = QToolBar("Main")
-        toolbar.setObjectName("mainToolbar")
-        toolbar.setMovable(False)
-        toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.addToolBar(toolbar)
+    def _build_tab_corner(self) -> None:
+        """The single always-visible action, on the tab row: everything else lives in the menus.
 
-        toolbar.addAction(self._new_project_action)
-        toolbar.addAction(self._open_project_action)
-        toolbar.addSeparator()
-        toolbar.addAction(self._import_action)
-        toolbar.addAction(self._identify_action)
-        self._export_toolbar_action = self._action(
-            "Export", lambda: self._export_menu.popup(self.cursor().pos()), icon_name="export"
-        )
-        self._export_toolbar_action.setMenu(self._export_menu)
-        self._project_actions.append(self._export_toolbar_action)
-        toolbar.addAction(self._export_toolbar_action)
-        toolbar.addSeparator()
-
-        spacer = QWidget()
-        spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        toolbar.addWidget(spacer)
-
-        species_caption = QLabel("Species: ")
-        species_caption.setStyleSheet("color: palette(mid);")
-        toolbar.addWidget(species_caption)
-        self.species_combo = QComboBox()
-        for module in self._state.registry.modules(enabled_only=True):
-            self.species_combo.addItem(module.descriptor.name, module.descriptor.module_id)
-        self.species_combo.currentIndexChanged.connect(
-            lambda: setattr(self._state, "default_module_id", self.species_combo.currentData())
-        )
-        self._state.default_module_id = self.species_combo.currentData()
-        toolbar.addWidget(self.species_combo)
-        algorithm_caption = QLabel("  Algorithm: ")
-        algorithm_caption.setStyleSheet("color: palette(mid);")
-        toolbar.addWidget(algorithm_caption)
-        self.algorithm_combo = QComboBox()
-        for algo in self._state.registry.algorithms(enabled_only=True):
-            self.algorithm_combo.addItem(algo.descriptor.name, algo.descriptor.algorithm_id)
-        self.algorithm_combo.currentIndexChanged.connect(
-            lambda: setattr(self._state, "default_algorithm_id", self.algorithm_combo.currentData())
-        )
-        self._state.default_algorithm_id = self.algorithm_combo.currentData()
-        toolbar.addWidget(self.algorithm_combo)
-        toolbar.addSeparator()
-        toolbar.addAction(
-            self._action("Settings", lambda: self.open_dialog("Settings"), icon_name="settings")
-        )
-        toolbar.addAction(self._action("Help", lambda: self.open_dialog("Help"), icon_name="help"))
+        Replaces the old icon toolbar, which only duplicated menu entries (New/Open/Import/Identify/
+        Export/Settings/Help) and carried global Species/Algorithm combos that belong to the Import
+        dialog and the Identification tab respectively.
+        """
+        corner = QWidget()
+        corner_layout = QHBoxLayout(corner)
+        corner_layout.setContentsMargins(0, 3, 8, 3)
+        self.import_button = QPushButton("Add Observations")
+        self.import_button.setObjectName("primary")
+        self.import_button.setIcon(icon("observation", QColor("white")))
+        self.import_button.setToolTip("Import photos as observations (Ctrl+I)")
+        self.import_button.clicked.connect(lambda: self.open_dialog("Import"))
+        corner_layout.addWidget(self.import_button)
+        self._tabs.setCornerWidget(corner, Qt.Corner.TopRightCorner)
 
     def _apply_icons(self) -> None:
         for action, name in self._icon_actions:
@@ -364,6 +327,7 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("Ready")
         for action in self._project_actions:
             action.setEnabled(project is not None)
+        self.import_button.setEnabled(project is not None)
         catalog = self._state.catalog
         species = catalog.list_species() if catalog is not None else []
         if len(species) == 1:
