@@ -38,6 +38,7 @@ from herpetoid.application.catalog_service import (
 )
 from herpetoid.domain import Image, Location, Observation
 from herpetoid.gui.state import AppState
+from herpetoid.gui.theme import section_label
 from herpetoid.gui.widgets.dynamic_form import DynamicForm
 from herpetoid.gui.widgets.image_viewer import ndarray_to_qimage
 from herpetoid.gui.widgets.roi_image_viewer import RoiImageViewer
@@ -70,16 +71,17 @@ class ObservationsScreen(QWidget):
         self._locked = False  # saved observations open read-only behind the "Edit" button
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setContentsMargins(12, 12, 12, 12)
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
         # --- Left: a narrow list of observations ---------------------------------------------
         table_panel = QWidget()
         table_layout = QVBoxLayout(table_panel)
         table_layout.setContentsMargins(0, 0, 0, 0)
-        table_layout.addWidget(QLabel("<b>Observations</b>"))
+        table_layout.addWidget(section_label("Observations"))
         self.table = QTableWidget(0, len(_COLUMNS))
         self.table.setHorizontalHeaderLabels(_COLUMNS)
+        self.table.setAlternatingRowColors(True)
         table_header = self.table.horizontalHeader()
         # Every column is user-resizable (drag the header edges); text elides to whatever width you set.
         for column in range(len(_COLUMNS)):
@@ -157,7 +159,7 @@ class ObservationsScreen(QWidget):
         form_panel = QWidget()
         form_panel_layout = QVBoxLayout(form_panel)
         form_panel_layout.setContentsMargins(0, 0, 0, 0)
-        form_panel_layout.addWidget(QLabel("<b>Observation details</b>"))
+        form_panel_layout.addWidget(section_label("Observation details"))
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -193,7 +195,7 @@ class ObservationsScreen(QWidget):
         universal_form.addRow("Location", self.location_edit)
         self._form_layout.addWidget(universal)
 
-        self._form_layout.addWidget(QLabel("<b>Measurements</b>"))
+        self._form_layout.addWidget(section_label("Measurements"))
         self._form_container = QWidget()
         self._form_container_layout = QVBoxLayout(self._form_container)
         self._form_container_layout.setContentsMargins(0, 0, 0, 0)

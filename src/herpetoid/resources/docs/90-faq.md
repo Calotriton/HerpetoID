@@ -16,8 +16,10 @@ cannot be matched to each other.
 **Where is my data?**
 Inside the project folder: `project.db` plus the `images/` folder. The whole folder is portable.
 
-**Can I change the theme?**
-Yes — **Settings** tab → Theme (System / Light / Dark), applied immediately.
+**Can I change the look of the app?**
+Yes — open **Settings** (toolbar or Tools menu): *Mode* switches System / Light / Dark, and *Style*
+picks a color preset (Brook Teal, Forest Moss, River Slate, Sunset Clay). Both apply immediately and
+are remembered. The same options live under **View → Theme / Style**.
 
 **How do I add another species or algorithm?**
 Install a plugin (see the *Plugins* chapter). No changes to HerpetoID itself are required.

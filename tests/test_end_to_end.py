@@ -246,3 +246,21 @@ def test_full_photo_id_workflow(tmp_path: Path, qtbot) -> None:
     assert not window._dock.isVisible()
     toggle.trigger()
     assert window._dock.isVisible()
+
+    # 10) Appearance: switching the style preset in Settings restyles the whole app live (the
+    #     QApplication stylesheet now carries the preset's accent) and persists the choice.
+    from PySide6.QtWidgets import QApplication
+
+    from herpetoid.gui.screens.settings import SettingsScreen
+    from herpetoid.gui.theme import get_style
+
+    settings_screen = window.open_dialog("Settings")
+    assert isinstance(settings_screen, SettingsScreen)
+    app = QApplication.instance()
+    assert app is not None
+    settings_screen.style_combo.setCurrentIndex(settings_screen.style_combo.findData("slate"))
+    assert state.settings.settings.style == "slate"
+    assert get_style("slate").accent in app.styleSheet()
+    # Restore the default so the shared QApplication doesn't leak the style into other tests.
+    settings_screen.style_combo.setCurrentIndex(settings_screen.style_combo.findData("teal"))
+    assert get_style("teal").accent in app.styleSheet()

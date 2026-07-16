@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 
 from herpetoid.application.catalog_service import pending_code
 from herpetoid.gui.state import AppState
+from herpetoid.gui.theme import section_label
 
 _KIND_ROLE = Qt.ItemDataRole.UserRole
 _ID_ROLE = Qt.ItemDataRole.UserRole + 1
@@ -57,11 +58,7 @@ class ProjectDock(QDockWidget):
         self.tree.itemClicked.connect(self._on_item_activated)
         layout.addWidget(self.tree, 1)
 
-        stats_header = QLabel("QUICK STATS")
-        stats_header.setStyleSheet(
-            "font-size: 10px; letter-spacing: 1px; color: palette(mid); font-weight: 600;"
-        )
-        layout.addWidget(stats_header)
+        layout.addWidget(section_label("Quick stats"))
         self.stats_label = QLabel()
         self.stats_label.setWordWrap(True)
         layout.addWidget(self.stats_label)

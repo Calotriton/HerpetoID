@@ -537,37 +537,75 @@ def test_statistics_screen(app_state: AppState, tmp_path: Path, qtbot) -> None:
     screen = StatisticsScreen(app_state)
     qtbot.addWidget(screen)
     assert "Observations: 2" in screen.summary_label.text()
+    # The table shows the species' declared display names (with units), not raw statistic keys.
     names = [screen.table.item(r, 0).text() for r in range(screen.table.rowCount())]
-    assert "mean_svl" in names
-    assert "sex_ratio" in names
+    assert "Mean SVL (mm)" in names
+    assert "Sex ratio" in names
+    assert "mean_svl" not in names
+    # The per-format export buttons collapsed into one menu button.
+    assert screen.export_button.menu() is not None
+    assert [a.text() for a in screen.export_button.menu().actions()] == [
+        "CSV",
+        "Excel",
+        "JSON",
+        "PDF",
+    ]
 
 
-def test_settings_screen_changes_theme(app_state: AppState, qtbot) -> None:
+def test_settings_screen_changes_theme_and_style(app_state: AppState, qtbot) -> None:
     from herpetoid.gui.screens.settings import SettingsScreen
 
     screen = SettingsScreen(app_state)
     qtbot.addWidget(screen)
-    screen.theme_combo.setCurrentText("dark")
+    screen.theme_combo.setCurrentIndex(screen.theme_combo.findData("dark"))
     assert app_state.settings.settings.theme == "dark"
+    screen.style_combo.setCurrentIndex(screen.style_combo.findData("moss"))
+    assert app_state.settings.settings.style == "moss"
+    assert app_state.settings.settings.theme == "dark"  # changing style keeps the mode
     screen.top_k_spin.setValue(7)
     assert app_state.settings.settings.default_top_k == 7
+    # Every offered style has a swatch icon and resolvable id.
+    assert screen.style_combo.count() >= 2
+    for index in range(screen.style_combo.count()):
+        assert not screen.style_combo.itemIcon(index).isNull()
 
 
-def test_theme_stylesheet_covers_shell_chrome(qtbot) -> None:
-    from herpetoid.gui.theme import _DARK, _LIGHT, ThemeManager, _stylesheet
-
-    for palette in (_DARK, _LIGHT):
-        sheet = _stylesheet(palette)
-        for selector in ("QMenuBar", "QMenu", "QToolBar", "QTabBar::tab", "QDockWidget"):
-            assert selector in sheet
-    # The stylesheet must still parse/apply cleanly.
+def test_theme_stylesheet_covers_shell_chrome_for_all_styles(qtbot) -> None:
     from PySide6.QtWidgets import QApplication
 
+    from herpetoid.gui.theme import ThemeManager, _stylesheet, available_styles, get_style
+
+    styles = available_styles()
+    assert {"teal", "moss", "slate", "clay"} <= {s.style_id for s in styles}
+    for style in styles:
+        for mode in ("light", "dark"):
+            sheet = _stylesheet(style, mode)
+            for selector in (
+                "QMenuBar",
+                "QMenu",
+                "QToolBar",
+                "QTabBar::tab",
+                "QDockWidget",
+                "QLabel#sectionTitle",
+                "QLabel#toast",
+                "QFrame#homeCard",
+                "QStatusBar::item",
+            ):
+                assert selector in sheet
+            assert style.accent in sheet
+
+    # Unknown/legacy style ids fall back to the default instead of crashing.
+    assert get_style("does-not-exist").style_id == "teal"
+    assert get_style(None).style_id == "teal"
+
+    # Every style applies cleanly in both modes on a real QApplication.
     app = QApplication.instance()
     assert app is not None
     manager = ThemeManager(app)
-    assert manager.apply("dark") == "dark"
-    assert manager.apply("light") == "light"
+    for style in styles:
+        assert manager.apply("dark", style.style_id) == "dark"
+        assert manager.apply("light", style.style_id) == "light"
+    manager.apply("light", "teal")  # leave the shared QApplication in the default look
 
 
 def test_icons_render_for_all_glyphs(qtbot) -> None:

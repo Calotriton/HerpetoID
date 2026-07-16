@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QMenu,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
@@ -20,6 +21,7 @@ from herpetoid.api import DerivedStatistic
 from herpetoid.application.catalog_service import CatalogService
 from herpetoid.application.export import ExportData
 from herpetoid.gui.state import AppState
+from herpetoid.gui.theme import section_label
 from herpetoid.infrastructure.pdf_export import PdfExporter
 
 _EXPORTS = (("CSV", "csv"), ("Excel", "xlsx"), ("JSON", "json"), ("PDF", "pdf"))
@@ -40,15 +42,19 @@ class StatisticsScreen(QWidget):
         layout.setContentsMargins(16, 16, 16, 16)
 
         header = QHBoxLayout()
-        header.addWidget(QLabel("<b>Project statistics</b>"))
+        header.addWidget(section_label("Project statistics"))
         header.addStretch(1)
         refresh_button = QPushButton("Refresh")
         refresh_button.clicked.connect(self._refresh)
         header.addWidget(refresh_button)
+        # One export button with a format menu — the toolbar's Export offers the same formats, so
+        # a row of per-format buttons here was pure noise.
+        self.export_button = QPushButton("Export…")
+        export_menu = QMenu(self.export_button)
         for label, fmt in _EXPORTS:
-            button = QPushButton(f"Export {label}")
-            button.clicked.connect(lambda _checked=False, f=fmt: self._export(f))
-            header.addWidget(button)
+            export_menu.addAction(label, lambda f=fmt: self._export(f))
+        self.export_button.setMenu(export_menu)
+        header.addWidget(self.export_button)
         layout.addLayout(header)
 
         self.summary_label = QLabel()
@@ -56,6 +62,7 @@ class StatisticsScreen(QWidget):
 
         self.table = QTableWidget(0, 2)
         self.table.setHorizontalHeaderLabels(["Statistic", "Value"])
+        self.table.setAlternatingRowColors(True)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.verticalHeader().setVisible(False)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -73,10 +80,11 @@ class StatisticsScreen(QWidget):
 
         observations = catalog.list_observations()
         individuals = catalog.list_individuals()
+        derived = self._collect_derived(catalog)
         report = self._state.statistics.compute(
             individuals=individuals,
             observations=observations,
-            derived=self._collect_derived(catalog),
+            derived=derived,
         )
 
         dates = ""
@@ -89,13 +97,17 @@ class StatisticsScreen(QWidget):
             f"  ·  Recaptures: {report.recapture_count}{dates}"
         )
 
+        # Show the species' declared display names ("Mean SVL (mm)"), not raw keys ("mean_svl").
+        labels = {
+            spec.key: spec.label + (f" ({spec.unit})" if spec.unit else "") for spec in derived
+        }
         rows: list[tuple[str, str]] = []
         for key, value in report.aggregates.items():
-            rows.append((key, f"{value:.4g}"))
+            rows.append((labels.get(key, key), f"{value:.4g}"))
         for key, distribution in report.distributions.items():
-            rows.append((key, ", ".join(f"{k}: {v}" for k, v in distribution.items())))
+            rows.append((labels.get(key, key), ", ".join(f"{k}: {v}" for k, v in distribution.items())))
         for key, points in report.growth.items():
-            rows.append((key, f"{len(points)} points"))
+            rows.append((labels.get(key, key), f"{len(points)} points"))
         self._fill_table(rows)
 
     def _collect_derived(self, catalog: CatalogService) -> list[DerivedStatistic]:

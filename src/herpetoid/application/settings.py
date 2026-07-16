@@ -14,6 +14,7 @@ class Settings:
     """User-level application settings (persisted outside any project bundle)."""
 
     theme: str = "system"  # 'system' | 'light' | 'dark'
+    style: str = "teal"  # visual style preset id (see herpetoid.gui.theme.STYLES)
     language: str = "en"
     default_top_k: int = 3
     recent_projects: list[str] = field(default_factory=list)
@@ -21,6 +22,7 @@ class Settings:
     def to_dict(self) -> dict[str, Any]:
         return {
             "theme": self.theme,
+            "style": self.style,
             "language": self.language,
             "default_top_k": self.default_top_k,
             "recent_projects": list(self.recent_projects),
@@ -30,6 +32,7 @@ class Settings:
     def from_dict(cls, data: dict[str, Any]) -> Settings:
         return cls(
             theme=str(data.get("theme", "system")),
+            style=str(data.get("style", "teal")),
             language=str(data.get("language", "en")),
             default_top_k=int(data.get("default_top_k", 3)),
             recent_projects=[str(p) for p in data.get("recent_projects", [])],
@@ -61,6 +64,10 @@ class SettingsService:
 
     def set_theme(self, theme: str) -> None:
         self._settings.theme = theme
+        self._store.save(self._settings)
+
+    def set_style(self, style: str) -> None:
+        self._settings.style = style
         self._store.save(self._settings)
 
     def add_recent_project(self, path: str) -> None:

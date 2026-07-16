@@ -47,7 +47,7 @@ from .screens.projects import ProjectManagerScreen
 from .screens.settings import SettingsScreen
 from .screens.statistics import StatisticsScreen
 from .state import AppState
-from .theme import ThemeManager
+from .theme import ThemeManager, available_styles
 
 _ScreenT = TypeVar("_ScreenT", bound=QWidget)
 
@@ -196,6 +196,17 @@ class MainWindow(QMainWindow):
             action.triggered.connect(lambda _=False, v=value: self._set_theme(v))
             theme_group.addAction(action)
             theme_menu.addAction(action)
+        style_menu = view_menu.addMenu("Style")
+        style_group = QActionGroup(self)
+        style_group.setExclusive(True)
+        current_style = self._state.settings.settings.style
+        for style in available_styles():
+            action = QAction(style.name, self)
+            action.setCheckable(True)
+            action.setChecked(style.style_id == current_style)
+            action.triggered.connect(lambda _=False, v=style.style_id: self._set_style(v))
+            style_group.addAction(action)
+            style_menu.addAction(action)
         view_menu.addSeparator()
         for index in range(self._tabs.count()):
             name = self._tabs.tabText(index)
@@ -245,7 +256,9 @@ class MainWindow(QMainWindow):
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         toolbar.addWidget(spacer)
 
-        toolbar.addWidget(QLabel("Species Module: "))
+        species_caption = QLabel("Species: ")
+        species_caption.setStyleSheet("color: palette(mid);")
+        toolbar.addWidget(species_caption)
         self.species_combo = QComboBox()
         for module in self._state.registry.modules(enabled_only=True):
             self.species_combo.addItem(module.descriptor.name, module.descriptor.module_id)
@@ -254,7 +267,9 @@ class MainWindow(QMainWindow):
         )
         self._state.default_module_id = self.species_combo.currentData()
         toolbar.addWidget(self.species_combo)
-        toolbar.addWidget(QLabel("  Algorithm: "))
+        algorithm_caption = QLabel("  Algorithm: ")
+        algorithm_caption.setStyleSheet("color: palette(mid);")
+        toolbar.addWidget(algorithm_caption)
         self.algorithm_combo = QComboBox()
         for algo in self._state.registry.algorithms(enabled_only=True):
             self.algorithm_combo.addItem(algo.descriptor.name, algo.descriptor.algorithm_id)
@@ -298,9 +313,17 @@ class MainWindow(QMainWindow):
 
     def _set_theme(self, theme: str) -> None:
         self._state.settings.set_theme(theme)
+        self._apply_appearance()
+
+    def _set_style(self, style_id: str) -> None:
+        self._state.settings.set_style(style_id)
+        self._apply_appearance()
+
+    def _apply_appearance(self) -> None:
+        settings = self._state.settings.settings
         app = QApplication.instance()
         if isinstance(app, QApplication):
-            ThemeManager(app).apply(theme)
+            ThemeManager(app).apply(settings.theme, settings.style)
 
     def _export(self, format_id: str) -> None:
         if self._state.catalog is None:
@@ -407,7 +430,7 @@ class MainWindow(QMainWindow):
                 "Add Observations", ImageImportScreen(state), self, width=860, height=620
             )
         if name == "Settings":
-            return ScreenDialog("Settings", SettingsScreen(state), self, width=420, height=220)
+            return ScreenDialog("Settings", SettingsScreen(state), self, width=440, height=320)
         if name == "Plugins":
             return ScreenDialog("Plugin Manager", PluginManagerScreen(state.registry), self)
         if name == "Help":

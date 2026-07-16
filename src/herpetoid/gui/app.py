@@ -57,7 +57,7 @@ def run(argv: list[str] | None = None) -> int:
     configure_logging(app_paths().log_dir)
 
     state = build_app_state()
-    ThemeManager(app).apply(state.settings.settings.theme)
+    ThemeManager(app).apply(state.settings.settings.theme, state.settings.settings.style)
     reopen_last_project(state)  # autosave-friendly: pick up the last project on launch
 
     window = MainWindow(state)

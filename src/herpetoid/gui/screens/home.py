@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from herpetoid.gui.state import AppState
+from herpetoid.gui.theme import section_label
 
 # (title, description, destination screen) for the quick-action cards.
 _ACTIONS: tuple[tuple[str, str, str], ...] = (
@@ -53,21 +54,16 @@ class _ActionCard(QFrame):
     def __init__(self, title: str, description: str, on_click: Callable[[], None]) -> None:
         super().__init__()
         self._on_click = on_click
-        self.setObjectName("homeCard")
+        self.setObjectName("homeCard")  # styled centrally in theme.py
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setStyleSheet(
-            "#homeCard { background: palette(base); border: 1px solid palette(mid);"
-            " border-radius: 10px; }"
-            " #homeCard:hover { border: 1px solid palette(highlight); }"
-        )
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 12, 14, 12)
         layout.setSpacing(4)
         title_label = QLabel(title)
-        title_label.setStyleSheet("font-size: 14px; font-weight: 700; border: none;")
+        title_label.setObjectName("cardTitle")
         description_label = QLabel(description)
         description_label.setWordWrap(True)
-        description_label.setStyleSheet("color: palette(mid); font-size: 12px; border: none;")
+        description_label.setObjectName("cardCaption")
         layout.addWidget(title_label)
         layout.addWidget(description_label)
 
@@ -81,19 +77,14 @@ class _ActionCard(QFrame):
 
 def _stat_tile(value: str, label: str) -> QWidget:
     tile = QFrame()
-    tile.setObjectName("statTile")
-    tile.setStyleSheet(
-        "#statTile { background: palette(base); border: 1px solid palette(mid); border-radius: 10px; }"
-    )
+    tile.setObjectName("statTile")  # styled centrally in theme.py
     layout = QVBoxLayout(tile)
     layout.setContentsMargins(16, 10, 16, 10)
     layout.setSpacing(0)
     number = QLabel(value)
-    number.setStyleSheet(
-        "font-size: 26px; font-weight: 800; color: palette(highlight); border: none;"
-    )
+    number.setObjectName("statValue")
     caption = QLabel(label)
-    caption.setStyleSheet("color: palette(mid); font-size: 11px; border: none;")
+    caption.setObjectName("cardCaption")
     layout.addWidget(number)
     layout.addWidget(caption)
     return tile
@@ -118,12 +109,12 @@ class HomeScreen(QWidget):
         layout.setSpacing(18)
 
         title = QLabel("HerpetoID")
-        title.setStyleSheet("font-size: 32px; font-weight: 800;")
+        title.setObjectName("pageTitle")
         subtitle = QLabel(
             "Non-invasive individual identification of wildlife from natural body patterns."
         )
         subtitle.setWordWrap(True)
-        subtitle.setStyleSheet("font-size: 14px; color: palette(mid);")
+        subtitle.setObjectName("pageSubtitle")
         layout.addWidget(title)
         layout.addWidget(subtitle)
 
@@ -132,9 +123,7 @@ class HomeScreen(QWidget):
         self._status_layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self._status_host)
 
-        actions_header = QLabel("Quick actions")
-        actions_header.setStyleSheet("font-size: 15px; font-weight: 700; margin-top: 6px;")
-        layout.addWidget(actions_header)
+        layout.addWidget(section_label("Quick actions"))
 
         grid = QGridLayout()
         grid.setSpacing(12)
@@ -152,11 +141,7 @@ class HomeScreen(QWidget):
     def _refresh(self) -> None:
         _clear_layout(self._status_layout)
         card = QFrame()
-        card.setObjectName("statusCard")
-        card.setStyleSheet(
-            "#statusCard { background: palette(base); border: 1px solid palette(mid);"
-            " border-radius: 12px; }"
-        )
+        card.setObjectName("statusCard")  # styled centrally in theme.py
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(18, 16, 18, 16)
         card_layout.setSpacing(12)
@@ -165,9 +150,9 @@ class HomeScreen(QWidget):
         catalog = self._state.catalog
         if project is None or catalog is None:
             heading = QLabel("No project open")
-            heading.setStyleSheet("font-size: 16px; font-weight: 700; border: none;")
+            heading.setStyleSheet("font-size: 16px; font-weight: 700;")
             hint = QLabel("Create a new project or open an existing bundle to begin.")
-            hint.setStyleSheet("color: palette(mid); border: none;")
+            hint.setObjectName("cardCaption")
             card_layout.addWidget(heading)
             card_layout.addWidget(hint)
             buttons = QHBoxLayout()
@@ -179,7 +164,7 @@ class HomeScreen(QWidget):
             card_layout.addLayout(buttons)
         else:
             heading = QLabel(f"Current project · {project.project.name}")
-            heading.setStyleSheet("font-size: 16px; font-weight: 700; border: none;")
+            heading.setStyleSheet("font-size: 16px; font-weight: 700;")
             card_layout.addWidget(heading)
 
             tiles = QHBoxLayout()

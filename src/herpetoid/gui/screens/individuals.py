@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
 from herpetoid.api import FieldDefinition
 from herpetoid.domain import Individual, IndividualStatus, Observation, Sex
 from herpetoid.gui.state import AppState
+from herpetoid.gui.theme import section_label
 from herpetoid.gui.widgets.dynamic_form import DynamicForm
 from herpetoid.gui.widgets.image_viewer import ImageViewer
 from herpetoid.gui.widgets.info_table import (
@@ -117,11 +118,12 @@ class IndividualBrowserScreen(QWidget):
         self._obs_index = 0
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setContentsMargins(12, 12, 12, 12)
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
         self.table = QTableWidget(0, len(_COLUMNS))
         self.table.setHorizontalHeaderLabels(_COLUMNS)
+        self.table.setAlternatingRowColors(True)
         header = self.table.horizontalHeader()
         # All columns get a bounded width (Interactive = user-resizable, but seeded here) with elision,
         # so no cell can balloon and push the Edit button off-screen / behind a horizontal scrollbar.
@@ -167,7 +169,7 @@ class IndividualBrowserScreen(QWidget):
         nav_row.addWidget(self.next_button)
         detail_layout.addLayout(nav_row)
 
-        detail_layout.addWidget(QLabel("<b>Observation details</b>"))
+        detail_layout.addWidget(section_label("Observation details"))
         data_row = QHBoxLayout()
         self.info_table = InfoTable()
         data_row.addWidget(self.info_table, 1)

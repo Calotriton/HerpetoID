@@ -39,6 +39,7 @@ from herpetoid.application.identification_runner import (
     PairwiseComparison,
 )
 from herpetoid.gui.state import AppState
+from herpetoid.gui.theme import section_label
 from herpetoid.gui.widgets.image_viewer import ndarray_to_qimage
 from herpetoid.gui.widgets.info_table import InfoTable
 from herpetoid.gui.widgets.match_overlay import MatchOverlayViewer
@@ -255,7 +256,7 @@ class IdentificationScreen(QWidget):
         self._matches_panel = QWidget()
         matches_layout = QVBoxLayout(self._matches_panel)
         matches_layout.setContentsMargins(0, 0, 0, 0)
-        matches_layout.addWidget(QLabel("<b>Top matches</b>"))
+        matches_layout.addWidget(section_label("Top matches"))
         self.cards = QListWidget()
         self.cards.setObjectName("matchCards")
         self.cards.setSelectionMode(QListWidget.SelectionMode.SingleSelection)

@@ -14,9 +14,18 @@ from herpetoid.infrastructure.settings_store import JsonSettingsStore
 def test_settings_defaults_and_roundtrip(tmp_path: Path) -> None:
     store = JsonSettingsStore(tmp_path / "settings.json")
     assert store.load() == Settings()  # defaults when the file is missing
-    saved = Settings(theme="dark", default_top_k=5, recent_projects=["a", "b"])
+    assert store.load().style == "teal"  # legacy settings files gain the default style
+    saved = Settings(theme="dark", style="moss", default_top_k=5, recent_projects=["a", "b"])
     store.save(saved)
     assert store.load() == saved
+
+
+def test_settings_service_persists_style(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    service = SettingsService(JsonSettingsStore(path))
+    service.set_style("slate")
+    reloaded = SettingsService(JsonSettingsStore(path))
+    assert reloaded.settings.style == "slate"
 
 
 def test_settings_service_recent_projects(tmp_path: Path) -> None:
