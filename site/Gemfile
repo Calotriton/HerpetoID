@@ -1,0 +1,7 @@
+# Only needed to preview the site locally (`bundle exec jekyll serve`).
+# GitHub Pages builds the site without it.
+
+source "https://rubygems.org"
+
+gem "github-pages", group: :jekyll_plugins
+gem "webrick" # Ruby 3+ no longer ships webrick, which `jekyll serve` needs

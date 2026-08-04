@@ -1,0 +1,9 @@
+<svg class="logo" width="28" height="28" viewBox="0 0 32 32" fill="none" aria-hidden="true" focusable="false">
+  <rect x="1.5" y="1.5" width="29" height="29" rx="8" fill="var(--accent)" fill-opacity="0.12" stroke="var(--accent)" stroke-width="1.5"/>
+  <!-- Stylised ventral spot pattern: the biometric HerpetoID reads. -->
+  <circle cx="11" cy="10" r="2.6" fill="var(--accent)"/>
+  <circle cx="20.5" cy="13" r="1.7" fill="var(--accent)" fill-opacity="0.75"/>
+  <circle cx="13" cy="18" r="1.9" fill="var(--accent)" fill-opacity="0.85"/>
+  <circle cx="21" cy="21.5" r="2.9" fill="var(--accent)"/>
+  <circle cx="9" cy="23" r="1.4" fill="var(--accent)" fill-opacity="0.6"/>
+</svg>

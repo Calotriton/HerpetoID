@@ -1,0 +1,76 @@
+---
+layout: page
+title: Download
+subtitle: Free, open source, and runs entirely on your own machine.
+permalink: /download/
+load_releases: true
+description: Download the latest Windows build of HerpetoID, or run it from source.
+---
+
+<div class="release-box" id="latest-release">
+  <p class="loading">Checking for the latest release&hellip;</p>
+</div>
+
+<h2>System requirements</h2>
+
+<div class="table-scroll">
+  <table>
+    <tr><th>Operating system</th><td>Windows 10 or 11 (64-bit)</td></tr>
+    <tr><th>Disk space</th><td>~1 GB for the application, plus room for your project images</td></tr>
+    <tr><th>Python</th><td>Not required &mdash; everything is bundled</td></tr>
+    <tr><th>Internet</th><td>Not required. HerpetoID never uploads your photographs</td></tr>
+  </table>
+</div>
+
+<h2>Installing</h2>
+
+<ol>
+  <li>Download the <code>.zip</code> above.</li>
+  <li>Right-click it &rarr; <strong>Extract All</strong>, and choose where to keep it (for example
+    <code>C:\Programs\HerpetoID</code>). Avoid running it from inside the zip.</li>
+  <li>Open the extracted folder and run <strong><code>HerpetoID.exe</code></strong>.</li>
+</ol>
+
+<p>There is no installer and nothing is written to the registry. To uninstall, delete the folder.</p>
+
+<div class="callout">
+  <p><strong>Windows may warn you the first time.</strong> The build is not code-signed yet &mdash; a
+  signing certificate is an annual cost this project does not carry. If SmartScreen shows
+  &ldquo;Windows protected your PC&rdquo;, click <strong>More info</strong> &rarr;
+  <strong>Run anyway</strong>. You can verify exactly what you are running: the source is public and
+  the release is built from it.</p>
+</div>
+
+<section hidden>
+  <h2>Earlier releases</h2>
+  <div id="release-history"></div>
+  <p><a href="https://github.com/{{ site.repository }}/releases" rel="noopener">All releases on GitHub &rarr;</a></p>
+</section>
+
+<h2>Species add-ons</h2>
+
+<p>
+  Species modules and matching algorithms install as plugins &mdash; drop them into the
+  <code>plugins/</code> folder next to the application and restart. New modules are announced on the
+  <a href="{{ '/news/' | relative_url }}">news page</a> as they are released.
+</p>
+
+<h2>Running from source</h2>
+
+<p>
+  Prefer to run the development version, or use another operating system? HerpetoID is a Python 3.12
+  application; the packaged build is Windows-only, but the source is not.
+</p>
+
+<pre><code>git clone https://github.com/{{ site.repository }}.git
+cd HerpetoID
+python -m venv .venv
+.venv\Scripts\activate
+pip install -e ".[dev]"
+herpetoid</code></pre>
+
+<p>
+  Full instructions live in the
+  <a href="https://github.com/{{ site.repository }}#readme" rel="noopener">repository README</a>.
+  Found a problem? <a href="https://github.com/{{ site.repository }}/issues" rel="noopener">Open an issue</a>.
+</p>

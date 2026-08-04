@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en" data-theme="">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="{{ '/assets/img/favicon.svg' | relative_url }}" type="image/svg+xml">
+  <link rel="stylesheet" href="{{ '/assets/css/main.css' | relative_url }}">
+  <script>
+    // Applied before first paint so the chosen theme never flashes the wrong colors.
+    (function () {
+      var t = localStorage.getItem('herpetoid-theme');
+      if (t) document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
+  {%- seo -%}
+  {%- feed_meta -%}
+</head>
+<body data-repo="{{ site.repository }}">
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="wrap header-inner">
+      <a class="brand" href="{{ '/' | relative_url }}">
+        {% include logo.svg %}
+        <span class="brand-name">Herpeto<strong>ID</strong></span>
+      </a>
+
+      <nav class="site-nav" aria-label="Main">
+        {%- assign p = page.url -%}
+        <a href="{{ '/how-it-works/' | relative_url }}" {% if p contains '/how-it-works' %}aria-current="page"{% endif %}>How it works</a>
+        <a href="{{ '/news/' | relative_url }}" {% if p contains '/news' %}aria-current="page"{% endif %}>News</a>
+        <a href="{{ site.github_repo_url }}" rel="noopener">GitHub</a>
+        <a class="btn btn-sm" href="{{ '/download/' | relative_url }}">Download</a>
+        <button class="theme-toggle" type="button" aria-label="Switch between light and dark theme" title="Switch theme"></button>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    {{ content }}
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-inner">
+      <div>
+        <p class="footer-title">HerpetoID</p>
+        <p class="muted">{{ site.tagline }}</p>
+      </div>
+      <nav class="footer-links" aria-label="Footer">
+        <a href="{{ '/how-it-works/' | relative_url }}">How it works</a>
+        <a href="{{ '/download/' | relative_url }}">Download</a>
+        <a href="{{ '/news/' | relative_url }}">News</a>
+        <a href="{{ '/feed.xml' | relative_url }}">RSS</a>
+        <a href="{{ site.github_repo_url }}" rel="noopener">Source code</a>
+        <a href="{{ site.github_repo_url }}/issues" rel="noopener">Report an issue</a>
+      </nav>
+    </div>
+    <div class="wrap footer-legal">
+      <p class="muted">
+        Free and open source under the
+        <a href="{{ site.github_repo_url }}/blob/main/LICENSE" rel="noopener">MIT license</a>.
+        Built for field ecologists.
+      </p>
+    </div>
+  </footer>
+
+  <script src="{{ '/assets/js/theme.js' | relative_url }}"></script>
+  {%- if page.load_releases %}
+  <script src="{{ '/assets/js/releases.js' | relative_url }}"></script>
+  {%- endif %}
+</body>
+</html>

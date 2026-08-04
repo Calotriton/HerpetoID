@@ -1,0 +1,47 @@
+# Jekyll configuration for the HerpetoID website (GitHub Pages).
+#
+# The site is built from this folder only — the rest of the repository (Python package, tests,
+# internal docs) is never published. See .github/workflows/pages.yml.
+
+title: HerpetoID
+tagline: Non-invasive individual identification of wildlife from natural body patterns
+description: >-
+  HerpetoID is a free, offline-first desktop application that helps ecologists identify and
+  re-identify individual animals from photographs of their unique natural markings. New species
+  and matching algorithms are added as plugins.
+
+# Public URL. If you later point a custom domain at the site, set `url` to that domain and change
+# `baseurl` to an empty string ("").
+url: "https://calotriton.github.io"
+baseurl: "/HerpetoID"
+
+repository: Calotriton/HerpetoID
+github_repo_url: https://github.com/Calotriton/HerpetoID
+
+# News posts live in _posts/ and land under /news/<year>/<month>/<day>/<title>/
+permalink: /news/:year/:month/:day/:title/
+
+markdown: kramdown
+kramdown:
+  input: GFM
+  syntax_highlighter: rouge
+
+plugins:
+  - jekyll-feed
+  - jekyll-seo-tag
+
+feed:
+  path: feed.xml
+
+defaults:
+  - scope:
+      path: ""
+      type: posts
+    values:
+      layout: post
+
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - vendor
+  - README.md

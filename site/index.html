@@ -1,0 +1,176 @@
+---
+layout: default
+description: >-
+  HerpetoID is a free, offline-first Windows application that identifies individual animals from
+  photographs of their natural markings. Built for field ecologists, extensible by plugins.
+---
+
+<section class="hero">
+  <div class="wrap hero-grid">
+    <div>
+      <span class="pill">Free &amp; open source &middot; Windows</span>
+      <h1>Know which animal you just photographed.</h1>
+      <p class="lede">
+        HerpetoID identifies and re-identifies individual animals from the natural patterns on their
+        bodies &mdash; no tags, no clipping, no handling beyond the photograph itself.
+      </p>
+      <div class="hero-actions">
+        <a class="btn" href="{{ '/download/' | relative_url }}">Download for Windows</a>
+        <a class="btn btn-secondary" href="{{ '/how-it-works/' | relative_url }}">See how it works</a>
+      </div>
+      <p class="hero-note">
+        Early development &mdash; the first packaged release is on its way.
+        <a href="{{ '/news/' | relative_url }}">Follow the news</a> to hear when it lands.
+      </p>
+    </div>
+
+    <figure class="figure">
+      <svg viewBox="0 0 480 300" role="img"
+           aria-label="A field photograph's spot pattern compared against a catalogued individual, with corresponding spots linked and a similarity score of 94 per cent.">
+        <text x="8" y="28" fill="var(--muted)" font-size="12" font-family="inherit">Field photo</text>
+        <text x="282" y="28" fill="var(--muted)" font-size="12" font-family="inherit">Catalogue &middot; CA-014</text>
+
+        <rect x="8" y="40" width="190" height="190" rx="12" fill="var(--code-bg)" stroke="var(--border)"/>
+        <rect x="282" y="40" width="190" height="190" rx="12" fill="var(--code-bg)" stroke="var(--border)"/>
+
+        <g stroke="var(--accent)" stroke-width="1" stroke-dasharray="3 4" opacity="0.45">
+          <line x1="60" y1="90" x2="334" y2="95"/>
+          <line x1="120" y1="110" x2="394" y2="113"/>
+          <line x1="85" y1="150" x2="359" y2="153"/>
+          <line x1="140" y1="180" x2="414" y2="181"/>
+          <line x1="50" y1="195" x2="324" y2="198"/>
+        </g>
+
+        <g fill="var(--accent)">
+          <circle cx="60" cy="90" r="12"/>
+          <circle cx="120" cy="110" r="8" opacity="0.8"/>
+          <circle cx="85" cy="150" r="10" opacity="0.9"/>
+          <circle cx="140" cy="180" r="14"/>
+          <circle cx="50" cy="195" r="6" opacity="0.7"/>
+
+          <circle cx="334" cy="95" r="12"/>
+          <circle cx="394" cy="113" r="8" opacity="0.8"/>
+          <circle cx="359" cy="153" r="10" opacity="0.9"/>
+          <circle cx="414" cy="181" r="14"/>
+          <circle cx="324" cy="198" r="6" opacity="0.7"/>
+        </g>
+
+        <rect x="8" y="258" width="464" height="8" rx="4" fill="var(--border)"/>
+        <rect x="8" y="258" width="436" height="8" rx="4" fill="var(--accent)"/>
+        <text x="8" y="288" fill="var(--muted)" font-size="12" font-family="inherit">Rank 1 &middot; 94% similarity &middot; awaiting your confirmation</text>
+      </svg>
+      <figcaption>Illustration of the comparison view. Real screenshots arrive with the first release.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="section section-alt">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Mark&ndash;recapture without the marks</h2>
+      <p class="muted">
+        Many animals carry a biometric of their own: the ventral spots of a newt, the belly pattern of
+        a toad, the flank markings of a salamander. HerpetoID turns a folder of field photographs into
+        a searchable catalogue of known individuals.
+      </p>
+    </div>
+
+    <div class="cards">
+      <div class="card">
+        <div class="card-icon" aria-hidden="true">&#9678;</div>
+        <h3>Non-invasive</h3>
+        <p>The photograph is the tag. No toe-clipping, no PIT tags, no recapture stress.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon" aria-hidden="true">&#9745;</div>
+        <h3>You make the call</h3>
+        <p>The software ranks candidate matches and shows the evidence. The scientist confirms or rejects &mdash; never the algorithm alone.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon" aria-hidden="true">&#9992;</div>
+        <h3>Offline first</h3>
+        <p>Everything runs on your machine. No account, no upload, no connection needed in the field.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon" aria-hidden="true">&#9707;</div>
+        <h3>Portable projects</h3>
+        <p>A project is one self-contained folder &mdash; database, images and metadata. Copy it, back it up, hand it to a colleague.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>From photo to identified individual</h2>
+    </div>
+
+    <ol class="steps">
+      <li>
+        <div>
+          <h3>Import your session</h3>
+          <p>Drop in the photographs from a survey. Dates, locations and camera metadata are read automatically.</p>
+        </div>
+      </li>
+      <li>
+        <div>
+          <h3>Mark the pattern</h3>
+          <p>Outline the region that carries the markings. The species module knows how to normalise and clean it up.</p>
+        </div>
+      </li>
+      <li>
+        <div>
+          <h3>Search the catalogue</h3>
+          <p>The matching algorithm compares the pattern against every individual already recorded and returns a ranked shortlist.</p>
+        </div>
+      </li>
+      <li>
+        <div>
+          <h3>Confirm and record</h3>
+          <p>Review the candidates side by side. Confirm a recapture or register a new individual &mdash; then export for your analysis.</p>
+        </div>
+      </li>
+    </ol>
+
+    <p style="margin-top:2rem"><a href="{{ '/how-it-works/' | relative_url }}">Read the full workflow &rarr;</a></p>
+  </div>
+</section>
+
+<section class="section section-alt">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>One platform, many species</h2>
+      <p class="muted">
+        HerpetoID has no species baked into it. Each taxon arrives as a plugin that declares its own
+        regions of interest, its own field measurements and its own validation rules &mdash; and the
+        application builds the forms, comparison panels, statistics and exports to match.
+      </p>
+    </div>
+
+    <div class="cards">
+      <div class="card">
+        <h3>Species modules</h3>
+        <p>Add a new animal without touching the core. Announced here as they are released.</p>
+      </div>
+      <div class="card">
+        <h3>Matching algorithms</h3>
+        <p>Classic keypoint matchers today, learned embeddings tomorrow &mdash; installed the same drop-in way.</p>
+      </div>
+      <div class="card">
+        <h3>Open by design</h3>
+        <p>MIT licensed, auditable, and documented so any lab can write its own extension.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="wrap">
+  <section class="cta">
+    <h2>Get HerpetoID</h2>
+    <p>A single download, no Python installation required. Run it from a folder on any Windows machine.</p>
+    <p style="margin-top:1.5rem">
+      <a class="btn" href="{{ '/download/' | relative_url }}">Go to downloads</a>
+    </p>
+  </section>
+</div>

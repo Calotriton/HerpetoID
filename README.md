@@ -9,6 +9,8 @@ the Pyrenean brook newt, *Calotriton asper*). It is designed as a **long-term sc
 not a single-purpose tool: new species and new matching algorithms are added as **plugins**, without
 modifying the core.
 
+**Website: <https://calotriton.github.io/HerpetoID/>** — what it does, how it works, and downloads.
+
 > Status: early development. See [`docs/architecture.md`](docs/architecture.md) for the design and the
 > implementation plan for the roadmap.
 
