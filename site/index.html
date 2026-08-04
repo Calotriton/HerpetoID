@@ -1,18 +1,19 @@
 ---
 layout: default
 description: >-
-  HerpetoID is a free, offline-first Windows application that identifies individual animals from
-  photographs of their natural markings. Built for field ecologists, extensible by plugins.
+  HerpetoID is a free, offline-first Windows application that identifies individual amphibians and
+  reptiles from photographs of their natural patterns. Built for herpetologists, extensible by plugins.
 ---
 
 <section class="hero">
   <div class="wrap hero-grid">
     <div>
-      <span class="pill">Free &amp; open source &middot; Windows</span>
+      <span class="pill">Free &amp; open source &middot; Amphibians &amp; reptiles</span>
       <h1>Know which animal you just photographed.</h1>
       <p class="lede">
-        HerpetoID identifies and re-identifies individual animals from the natural patterns on their
-        bodies &mdash; no tags, no clipping, no handling beyond the photograph itself.
+        HerpetoID identifies and re-identifies individual amphibians and reptiles from the natural
+        patterns they already carry &mdash; belly spots, dorsal blotches, head scales. No
+        toe-clipping, no PIT tags, no permanent marks of any kind.
       </p>
       <div class="hero-actions">
         <a class="btn" href="{{ '/download/' | relative_url }}">Download for Windows</a>
@@ -26,8 +27,8 @@ description: >-
 
     <figure class="figure">
       <svg viewBox="0 0 480 300" role="img"
-           aria-label="A field photograph's spot pattern compared against a catalogued individual, with corresponding spots linked and a similarity score of 94 per cent.">
-        <text x="8" y="28" fill="var(--muted)" font-size="12" font-family="inherit">Field photo</text>
+           aria-label="A newt's ventral spot pattern from a field photograph compared against a catalogued individual, with corresponding spots linked and a similarity score of 94 per cent.">
+        <text x="8" y="28" fill="var(--muted)" font-size="12" font-family="inherit">Field photo &middot; ventral</text>
         <text x="282" y="28" fill="var(--muted)" font-size="12" font-family="inherit">Catalogue &middot; CA-014</text>
 
         <rect x="8" y="40" width="190" height="190" rx="12" fill="var(--code-bg)" stroke="var(--border)"/>
@@ -69,38 +70,79 @@ description: >-
     <div class="section-head">
       <h2>Mark&ndash;recapture without the marks</h2>
       <p class="muted">
-        Many animals carry a biometric of their own: the ventral spots of a newt, the belly pattern of
-        a toad, the flank markings of a salamander. HerpetoID turns a folder of field photographs into
-        a searchable catalogue of known individuals.
+        Amphibians and reptiles are awkward animals to mark. They are small, they shed, they are often
+        strictly protected, and the classic methods &mdash; toe-clipping, branding, PIT tags &mdash;
+        cost the animal something. Many of them, meanwhile, carry a pattern as individual as a
+        fingerprint. HerpetoID turns a folder of field photographs into a searchable catalogue of
+        known individuals.
       </p>
     </div>
 
-    <div class="cards">
+    <div class="cards cards-4">
       <div class="card">
         <div class="card-icon" aria-hidden="true">&#9678;</div>
-        <h3>Non-invasive</h3>
-        <p>The photograph is the tag. No toe-clipping, no PIT tags, no recapture stress.</p>
+        <h3>No permanent marking</h3>
+        <p>The photograph is the tag. No toe-clipping, no branding, no PIT tag, no batch mark that costs you individual identity.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon" aria-hidden="true">&#9866;</div>
+        <h3>Less handling, less risk</h3>
+        <p>Chytrid, <em>Bsal</em>, ranavirus and snake fungal disease travel on hands and equipment. Every minute of handling you can drop is worth dropping.</p>
       </div>
       <div class="card">
         <div class="card-icon" aria-hidden="true">&#9745;</div>
         <h3>You make the call</h3>
-        <p>The software ranks candidate matches and shows the evidence. The scientist confirms or rejects &mdash; never the algorithm alone.</p>
+        <p>The software ranks candidate matches and shows the evidence. The herpetologist confirms or rejects &mdash; never the algorithm alone.</p>
       </div>
       <div class="card">
         <div class="card-icon" aria-hidden="true">&#9992;</div>
-        <h3>Offline first</h3>
-        <p>Everything runs on your machine. No account, no upload, no connection needed in the field.</p>
-      </div>
-      <div class="card">
-        <div class="card-icon" aria-hidden="true">&#9707;</div>
-        <h3>Portable projects</h3>
-        <p>A project is one self-contained folder &mdash; database, images and metadata. Copy it, back it up, hand it to a colleague.</p>
+        <h3>Offline, and it stays that way</h3>
+        <p>No account, no upload, no connection needed at the pond. Localities for persecuted and collected species never leave your machine.</p>
       </div>
     </div>
   </div>
 </section>
 
 <section class="section">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>What carries the pattern</h2>
+      <p class="muted">
+        Different groups wear their identity in different places. A species module tells HerpetoID
+        where to look and how to read it.
+      </p>
+    </div>
+
+    <div class="cards">
+      <div class="card">
+        <h3>Newts &amp; salamanders</h3>
+        <p>Ventral spot and blotch patterns; the dorsal yellow of <em>Salamandra</em>. The classic, best-established photo-ID group.</p>
+      </div>
+      <div class="card">
+        <h3>Frogs &amp; toads</h3>
+        <p>Dorsal markings, flank and thigh patterning &mdash; and in some species the iris.</p>
+      </div>
+      <div class="card">
+        <h3>Snakes</h3>
+        <p>Head scale arrangement, dorsal zigzags and blotches, ventral scale markings.</p>
+      </div>
+      <div class="card">
+        <h3>Lizards</h3>
+        <p>Dorsal and lateral spot rows, ocelli, throat and gular patterning.</p>
+      </div>
+      <div class="card">
+        <h3>Tortoises &amp; terrapins</h3>
+        <p>Carapace and plastron scute patterns, and head and neck markings.</p>
+      </div>
+      <div class="card">
+        <h3>&hellip;and whatever you study</h3>
+        <p>None of these are built into the core. Each is a plugin &mdash; including the one you write.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section section-alt">
   <div class="wrap">
     <div class="section-head">
       <h2>From photo to identified individual</h2>
@@ -110,13 +152,13 @@ description: >-
       <li>
         <div>
           <h3>Import your session</h3>
-          <p>Drop in the photographs from a survey. Dates, locations and camera metadata are read automatically.</p>
+          <p>Drop in the photographs from a survey night or a transect. Dates, locations and camera metadata are read automatically.</p>
         </div>
       </li>
       <li>
         <div>
           <h3>Mark the pattern</h3>
-          <p>Outline the region that carries the markings. The species module knows how to normalise and clean it up.</p>
+          <p>Outline the region that carries the markings &mdash; the belly plate, the head shields, the plastron. The species module knows how to normalise and clean it up.</p>
         </div>
       </li>
       <li>
@@ -128,7 +170,7 @@ description: >-
       <li>
         <div>
           <h3>Confirm and record</h3>
-          <p>Review the candidates side by side. Confirm a recapture or register a new individual &mdash; then export for your analysis.</p>
+          <p>Review the candidates side by side. Confirm a recapture or register a new individual &mdash; then export for your survival and abundance models.</p>
         </div>
       </li>
     </ol>
@@ -137,29 +179,30 @@ description: >-
   </div>
 </section>
 
-<section class="section section-alt">
+<section class="section">
   <div class="wrap">
     <div class="section-head">
       <h2>One platform, many species</h2>
       <p class="muted">
         HerpetoID has no species baked into it. Each taxon arrives as a plugin that declares its own
-        regions of interest, its own field measurements and its own validation rules &mdash; and the
-        application builds the forms, comparison panels, statistics and exports to match.
+        region of interest, its own field measurements &mdash; snout&ndash;vent length, sex, life
+        stage, whatever your protocol records &mdash; and its own validation rules. The application
+        builds the forms, comparison panels, statistics and exports to match.
       </p>
     </div>
 
     <div class="cards">
       <div class="card">
         <h3>Species modules</h3>
-        <p>Add a new animal without touching the core. Announced here as they are released.</p>
+        <p>Add a newt, a viper or a tortoise without touching the core. Announced here as they are released.</p>
       </div>
       <div class="card">
         <h3>Matching algorithms</h3>
-        <p>Classic keypoint matchers today, learned embeddings tomorrow &mdash; installed the same drop-in way.</p>
+        <p>Classic keypoint matchers today, learned embeddings tomorrow &mdash; installed the same drop-in way, and shared across every species.</p>
       </div>
       <div class="card">
         <h3>Open by design</h3>
-        <p>MIT licensed, auditable, and documented so any lab can write its own extension.</p>
+        <p>MIT licensed, auditable, and documented so any herp lab can write its own module.</p>
       </div>
     </div>
   </div>

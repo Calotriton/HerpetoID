@@ -4,11 +4,12 @@
 # internal docs) is never published. See .github/workflows/pages.yml.
 
 title: HerpetoID
-tagline: Non-invasive individual identification of wildlife from natural body patterns
+tagline: Photo-identification of individual amphibians and reptiles
 description: >-
-  HerpetoID is a free, offline-first desktop application that helps ecologists identify and
-  re-identify individual animals from photographs of their unique natural markings. New species
-  and matching algorithms are added as plugins.
+  HerpetoID is a free, offline-first desktop application for herpetologists. It identifies and
+  re-identifies individual amphibians and reptiles from photographs of their natural patterns —
+  belly spots, dorsal blotches, head scales, scute patterns — with no permanent marking. New
+  species and matching algorithms are added as plugins.
 
 # Public URL. If you later point a custom domain at the site, set `url` to that domain and change
 # `baseurl` to an empty string ("").

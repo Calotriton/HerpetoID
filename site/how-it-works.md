@@ -1,23 +1,41 @@
 ---
 layout: page
 title: How it works
-subtitle: Photo-identification, from a folder of field images to a catalogue of known individuals.
+subtitle: Photo-identification for herpetofauna, from a folder of field images to a catalogue of known individuals.
 permalink: /how-it-works/
 description: >-
   The HerpetoID workflow — import, mark the pattern, search the catalogue, confirm the match — and
-  the plugin architecture that lets it grow to new species and new algorithms.
+  the plugin architecture that lets it grow to new amphibian and reptile species and new algorithms.
 ---
 
 ## The idea
 
-Many animals carry a pattern that is as individual as a fingerprint and stable over years: the
-ventral spots of a Pyrenean brook newt (*Calotriton asper*), the belly markings of a toad, the flank
-blotches of a salamander. If you can photograph it, you can recognise the animal again — without
-tags, clipping, or handling beyond the photograph itself.
+Many amphibians and reptiles carry a pattern that is as individual as a fingerprint: the ventral
+spots of a Pyrenean brook newt (*Calotriton asper*), the belly pattern of a great crested newt, the
+yellow dorsal blotches of a fire salamander, the head shields of an adder, the scute pattern on a
+tortoise's plastron. If you can photograph it, you can recognise the animal again.
 
-Doing that by eye works until the catalogue reaches a few dozen individuals. Past that, every new
-photograph means comparing against everything you have already recorded. HerpetoID does the
-comparing, and leaves the deciding to you.
+That matters more for herps than for most groups. They are small, they shed their skin, many are
+strictly protected, and the classic marking methods all cost the animal something — toe-clipping is
+invasive and ethically contested, branding is crude, PIT tags are expensive and mean handling every
+individual. Photo-identification replaces the mark, not the survey: you still capture and record as
+your protocol requires, but nothing permanent is done to the animal.
+
+Doing the matching by eye works until the catalogue reaches a few dozen individuals. Past that,
+every new photograph means comparing against everything you have already recorded. HerpetoID does
+the comparing, and leaves the deciding to you.
+
+## What carries the pattern
+
+| Group | Where to look |
+|---|---|
+| **Newts & salamanders** | Ventral spot and blotch patterns; dorsal yellow in *Salamandra*. The best-established photo-ID group. |
+| **Frogs & toads** | Dorsal markings, flank and thigh patterning; the iris in some species. |
+| **Snakes** | Head scale arrangement, dorsal zigzags and blotches, ventral scale markings. |
+| **Lizards** | Dorsal and lateral spot rows, ocelli, throat and gular patterning. |
+| **Tortoises & terrapins** | Carapace and plastron scute patterns, head and neck markings. |
+
+None of these are built into the application. Each is declared by a species module.
 
 ## The workflow
 
@@ -29,13 +47,14 @@ whole thing to a colleague and they have everything.
 
 ### 2. Import a survey
 
-Add the photographs from a session. Capture dates, and any location data the camera recorded, are
-read from the image metadata so you are not retyping what the file already knows.
+Add the photographs from a session — a night at the pond, a transect, a round of refugia checks.
+Capture dates, and any location data the camera recorded, are read from the image metadata so you
+are not retyping what the file already knows.
 
 ### 3. Mark the pattern
 
-Outline the region of interest — the part of the animal that carries the markings. Which region
-that is, and how it should be normalised and cleaned up before matching, is defined by the species
+Outline the region of interest: the belly plate, the head shields, the plastron. Which region that
+is, and how it should be normalised and cleaned up before matching, is defined by the species
 module, not hard-coded into the application.
 
 ### 4. Search the catalogue
@@ -52,11 +71,30 @@ that individual; reject them all and you register a new one.
 ### 6. Export
 
 Observations, individuals, capture histories and measurements export for analysis in the tools you
-already use for mark–recapture.
+already use — survival and abundance models, occupancy, growth curves.
 
-> **Human-in-the-loop by design.** HerpetoID proposes; the scientist decides. A false match that
-> nobody checked is worse than no match at all, so the software never confirms an identification on
-> its own.
+> **Human-in-the-loop by design.** HerpetoID proposes; the herpetologist decides. A false match that
+> nobody checked quietly corrupts a capture history, so the software never confirms an
+> identification on its own.
+
+## Two things worth knowing before you start
+
+**Patterns are stable, but not always.** In many species the pattern settles after metamorphosis and
+holds for years — this is what makes the method work. Growth can still change it, and juveniles are
+the least reliable case. Whether patterns are stable enough over your study's timespan is a question
+about your species, and worth validating rather than assuming.
+
+**Consistent photographs pay for themselves.** The more standardised the view, the distance and the
+lighting, the better any matcher performs. A photo tank or a flat plate, a fixed camera position and
+a scale in frame will do more for your match rates than any change of algorithm.
+
+## Biosecurity
+
+Chytrid (*Bd*), *Bsal*, ranavirus and snake fungal disease travel between sites on hands, nets, boots
+and photo tanks. Photo-identification does not remove the need for disinfection protocols — you are
+still capturing animals — but it does remove the handling that marking would have added, and it
+removes the repeat handling of recaptures for re-marking. Follow your national protocol; this is one
+fewer contact per animal.
 
 ## What makes it extensible
 
@@ -69,9 +107,10 @@ HerpetoID is built as three layers, with all dependencies pointing inward to the
 | **Identification algorithms** | Reusable, species-agnostic matchers. Drop-in installable, and shared across every species. |
 
 The consequence that matters in practice: **the application hard-codes no observation fields.** A
-species module declares what it measures, and the core builds the data-entry forms, the comparison
-panels, the statistics dashboards and the exports from that declaration. Adding a new animal does
-not mean modifying — or re-testing — the core.
+newt module recording snout–vent length and a tortoise module recording carapace length are the same
+kind of object to the core. Each declares what it measures, and the core builds the data-entry
+forms, the comparison panels, the statistics dashboards and the exports from that declaration.
+Adding a new species does not mean modifying — or re-testing — the core.
 
 ### Adding a species
 
@@ -83,8 +122,9 @@ interface evolves.
 ### Adding an algorithm
 
 Matchers are species-agnostic: implement feature extraction and comparison, register the plugin, and
-every species module that declares it compatible can use it. Classic keypoint matchers (ORB, SIFT)
-come first; learned approaches such as SuperPoint and DINOv2 embeddings are on the roadmap.
+every species module that declares it compatible can use it — a matcher written for newt bellies is
+available to tortoise plastrons for free. Classic keypoint matchers (ORB, SIFT) come first; learned
+approaches such as SuperPoint and DINOv2 embeddings are on the roadmap.
 
 Both kinds of plugin can be installed as a Python package or simply dropped into the `plugins/`
 folder next to the application. Developer documentation lives in the
@@ -93,9 +133,9 @@ folder next to the application. Developer documentation lives in the
 ## Your data stays yours
 
 HerpetoID runs entirely offline. There is no account, no cloud service, and no telemetry — your
-photographs and locality data never leave your machine. Sensitive site coordinates for protected
-species are a real concern in herpetology, and the safest design is the one where the data never
-travels.
+photographs and locality data never leave your machine. For herpetofauna this is not a detail:
+precise localities for persecuted snakes, collected tortoises and protected amphibians are exactly
+the data you do not want on someone else's server.
 
 ## Current status
 

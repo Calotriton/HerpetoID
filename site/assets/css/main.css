@@ -180,6 +180,8 @@ h3 { font-size: 1.15rem; margin-top: 1.8em; }
 .section-head h2 { margin-top: 0; }
 
 .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.25rem; }
+/* Four short cards read better as one row than as three plus an orphan. */
+.cards-4 { grid-template-columns: repeat(auto-fit, minmax(228px, 1fr)); }
 .card {
   background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius-lg); padding: 1.5rem;
