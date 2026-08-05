@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from logging import getLogger
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, QObject, QSize, Qt
@@ -23,11 +24,13 @@ from PySide6.QtWidgets import (
 
 from herpetoid.domain import PluginRef
 from herpetoid.gui.state import AppState
+from herpetoid.infrastructure.paths import BundlePathError
 
 _IMAGE_FILTER = "Images (*.png *.jpg *.jpeg *.tif *.tiff *.bmp)"
 _THUMB = QSize(140, 140)
 _CELL = QSize(156, 178)  # thumbnail + a two-line caption
 _OBSERVATION_ROLE = Qt.ItemDataRole.UserRole
+_LOGGER = getLogger("herpetoid.gui.import")
 
 
 class ImageImportScreen(QWidget):
@@ -36,6 +39,8 @@ class ImageImportScreen(QWidget):
         self._state = state
         self._module_by_species: dict[str, PluginRef] = {}
         self._staged: list[Path] = []
+        #: (filename, reason) for every file the last import could not read.
+        self.last_import_errors: list[tuple[str, str]] = []
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -185,7 +190,11 @@ class ImageImportScreen(QWidget):
         for image in catalog.list_images():
             if not image.thumbnail_path:
                 continue
-            pixmap = QPixmap(str(project.path / image.thumbnail_path))
+            try:  # bundle paths are untrusted input; never render a file from outside the bundle
+                thumbnail = project.image_store.resolve(image.thumbnail_path)
+            except BundlePathError:
+                continue
+            pixmap = QPixmap(str(thumbnail))
             if pixmap.isNull():
                 continue
             item = QListWidgetItem(QIcon(pixmap), image.original_filename)
@@ -225,12 +234,17 @@ class ImageImportScreen(QWidget):
     def _import_staged(self) -> None:
         if not self._staged:
             return
-        try:
-            count = self.import_files(list(self._staged))
-        except OSError as exc:
-            QMessageBox.warning(self, "Import failed", str(exc))
-            return
+        count = self.import_files(list(self._staged))
         self._clear_staged()
+        if self.last_import_errors:
+            detail = "\n".join(f"{name}: {reason}" for name, reason in self.last_import_errors)
+            QMessageBox.warning(
+                self,
+                "Import finished with errors",
+                f"Imported {count} image(s). {len(self.last_import_errors)} could not be read:"
+                f"\n\n{detail}",
+            )
+            return
         QMessageBox.information(self, "Import complete", f"Imported {count} image(s).")
 
     def _delete_selected(self) -> None:
@@ -261,7 +275,13 @@ class ImageImportScreen(QWidget):
         self._state.project_changed.emit()  # refresh this and every other screen
 
     def import_files(self, paths: list[Path]) -> int:
-        """Import each path as a new observation (one observation per image). Returns the count."""
+        """Import each path as a new observation (one observation per image).
+
+        Returns the number imported. A file that cannot be read (corrupt, not an image, or too large
+        to decode) is skipped and recorded in :attr:`last_import_errors` rather than aborting the
+        batch -- a single bad card-reader file must not cost the researcher the rest of the import.
+        """
+        self.last_import_errors = []
         catalog = self._state.catalog
         if catalog is None or self.species_combo.count() == 0:
             return 0
@@ -270,8 +290,15 @@ class ImageImportScreen(QWidget):
         species = catalog.ensure_species(species_name, module=module)
         assert species.id is not None
         observer = self.observer_edit.text().strip()
+        imported = 0
         for path in paths:
-            catalog.import_observation(species.id, [path], observer=observer)
+            try:
+                catalog.import_observation(species.id, [path], observer=observer)
+            except Exception as exc:  # malformed images raise a wide variety of decoder errors
+                _LOGGER.warning("Could not import %s: %s", path, exc)
+                self.last_import_errors.append((path.name, str(exc)))
+                continue
+            imported += 1
         # Notify every screen (this one included) so the new observations appear everywhere.
         self._state.project_changed.emit()
-        return len(paths)
+        return imported

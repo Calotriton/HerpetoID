@@ -1,7 +1,7 @@
 """Shared pytest configuration.
 
-Qt-based tests (added in the GUI phase) run headlessly via the offscreen platform, so the suite needs
-no display and works in CI.
+Qt-based tests run headlessly via the offscreen platform, so the suite needs no display and works in
+CI (see .github/workflows/ci.yml).
 """
 
 from __future__ import annotations

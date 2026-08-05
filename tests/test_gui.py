@@ -357,6 +357,38 @@ def test_import_observer_gating_and_delete(
     assert screen.gallery.count() == 0
 
 
+def test_import_skips_unreadable_files_and_keeps_the_rest(
+    app_state: AppState, tmp_path: Path, qtbot, monkeypatch
+) -> None:
+    """One corrupt file off a camera card must not cost the researcher the whole batch."""
+    from PIL import Image as PilImage
+    from PySide6.QtWidgets import QMessageBox
+
+    from herpetoid.gui.screens.import_images import ImageImportScreen
+
+    app_state.create_project(tmp_path / "proj", "P")
+    screen = ImageImportScreen(app_state)
+    qtbot.addWidget(screen)
+    catalog = app_state.catalog
+    assert catalog is not None
+
+    good_a, bad, good_b = tmp_path / "a.png", tmp_path / "truncated.png", tmp_path / "b.png"
+    for path in (good_a, good_b):
+        PilImage.fromarray(np.zeros((16, 16, 3), np.uint8)).save(path)
+    bad.write_bytes(b"\x89PNG\r\n\x1a\n truncated garbage")
+
+    screen.observer_edit.setText("AL")
+    screen.stage_files([good_a, bad, good_b])
+    warnings: list[str] = []
+    monkeypatch.setattr(QMessageBox, "warning", lambda _p, _t, text, *a, **k: warnings.append(text))
+    screen._import_staged()
+
+    assert catalog.observation_count() == 2  # both readable files landed
+    assert [name for name, _ in screen.last_import_errors] == ["truncated.png"]
+    assert warnings and "truncated.png" in warnings[0]
+    assert screen.staged_files() == []
+
+
 def test_observations_saved_tick_updates_on_save(
     app_state: AppState, tmp_path: Path, qtbot
 ) -> None:

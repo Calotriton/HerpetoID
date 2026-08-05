@@ -24,6 +24,16 @@
     return div.innerHTML;
   }
 
+  // Only ever emit an https:// GitHub URL into an href, and escape it as attribute text. The API
+  // response is trusted-ish (it is our own repo) but a URL is never allowed to break out of the
+  // attribute or smuggle in a javascript: scheme.
+  function safeUrl(value) {
+    if (typeof value !== 'string' || !/^https:\/\/[a-z0-9.-]*github(usercontent)?\.com\//i.test(value)) {
+      return '';
+    }
+    return escapeHtml(value).replace(/"/g, '&quot;');
+  }
+
   function renderNoRelease() {
     latestBox.innerHTML =
       '<div class="release-head"><h2>No public release yet</h2></div>' +
@@ -52,16 +62,16 @@
         html +=
           '<li><span>' + escapeHtml(asset.name) + '</span>' +
           '<span><span class="meta">' + formatSize(asset.size) + '</span> ' +
-          '<a class="btn btn-sm" href="' + asset.browser_download_url + '">Download</a></span></li>';
+          '<a class="btn btn-sm" href="' + safeUrl(asset.browser_download_url) + '">Download</a></span></li>';
       });
       html += '</ul>';
     } else {
       html +=
         '<p class="muted">This release has no downloadable Windows build attached. ' +
-        '<a href="' + release.html_url + '" rel="noopener">View it on GitHub</a>.</p>';
+        '<a href="' + safeUrl(release.html_url) + '" rel="noopener">View it on GitHub</a>.</p>';
     }
 
-    html += '<p style="margin-bottom:0"><a href="' + release.html_url + '" rel="noopener">Release notes and changelog &rarr;</a></p>';
+    html += '<p style="margin-bottom:0"><a href="' + safeUrl(release.html_url) + '" rel="noopener">Release notes and changelog &rarr;</a></p>';
     latestBox.innerHTML = html;
   }
 
@@ -76,7 +86,7 @@
     releases.slice(1, 6).forEach(function (release) {
       html +=
         '<li><p class="post-meta"><time>' + formatDate(release.published_at) + '</time></p>' +
-        '<h2><a href="' + release.html_url + '" rel="noopener">' +
+        '<h2><a href="' + safeUrl(release.html_url) + '" rel="noopener">' +
         escapeHtml(release.name || release.tag_name) + '</a></h2></li>';
     });
     historyBox.innerHTML = html + '</ul>';

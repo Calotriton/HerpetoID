@@ -9,7 +9,7 @@ Architecture (dependencies point inward to the Core):
 * :mod:`herpetoid.gui`            — PySide6 presentation layer (isolated; imported lazily).
 * :mod:`herpetoid.plugins`        — first-party species modules and algorithms.
 
-See ``docs/architecture.md`` for the full design.
+Project bundles and imported images are untrusted input; see ``SECURITY.md`` for the trust model.
 """
 
 from __future__ import annotations

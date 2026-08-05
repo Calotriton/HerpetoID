@@ -27,6 +27,7 @@ from reportlab.platypus import (
 
 from herpetoid.application.export import ExportData
 from herpetoid.domain import Image, Individual, Observation
+from herpetoid.infrastructure.paths import BundlePathError, resolve_in_bundle
 
 _TABLE_STYLE = TableStyle(
     [
@@ -163,7 +164,10 @@ class PdfExporter:
             for image in images_by_observation.get(observation.id, []):
                 if not image.thumbnail_path:
                     continue
-                path = self._bundle_root / image.thumbnail_path
+                try:  # a shared bundle's paths are untrusted: never embed a file from outside it
+                    path = resolve_in_bundle(self._bundle_root, image.thumbnail_path)
+                except BundlePathError:
+                    continue
                 if path.exists():
                     return self._rl_image(path)
         return None

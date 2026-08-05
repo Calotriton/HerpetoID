@@ -11,8 +11,8 @@ modifying the core.
 
 **Website: <https://calotriton.github.io/HerpetoID/>** — what it does, how it works, and downloads.
 
-> Status: early development. See [`docs/architecture.md`](docs/architecture.md) for the design and the
-> implementation plan for the roadmap.
+> Status: early development. The desktop application, the plugin SDK and the first species module
+> (*Calotriton asper*) work end to end; the layer boundaries below are enforced by the test suite.
 
 ---
 
@@ -55,11 +55,13 @@ pip install -e ".[dev]"
 ## Quick start
 
 ```powershell
-# run the test suite
-pytest
-
-# launch the application (desktop GUI arrives in the GUI phase)
+# launch the desktop application
 herpetoid
+
+# run the checks CI runs
+pytest
+ruff check .
+mypy
 ```
 
 ## Authoring plugins
@@ -71,8 +73,17 @@ herpetoid
   `define_species_profile`, `define_observation_fields`, `preprocess`, `compatible_algorithms`, and
   register it under `herpetoid.species_modules`.
 
-Validate any plugin against the reusable **conformance test suites** in `tests/conformance/`. See
-[`docs/plugin-authoring.md`](docs/plugin-authoring.md).
+Validate any plugin against the reusable **conformance suites** shipped in `herpetoid.testing` (see
+`tests/test_conformance_selftest.py` for how to call them).
+
+> Plugins are ordinary Python and run with your privileges — install them only from sources you
+> trust. See [`SECURITY.md`](SECURITY.md) for the full trust model.
+
+## Security
+
+HerpetoID is offline and makes no network calls, but it opens files that may come from other people:
+project bundles are designed to be shared. [`SECURITY.md`](SECURITY.md) documents what is trusted,
+what is not, and how to report a vulnerability.
 
 ## License
 
