@@ -29,7 +29,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from herpetoid.api import FieldDefinition, ROIKind, ROISpec
+from herpetoid.api import FieldDefinition, ROIKind, ROISpec, SpeciesModule
 from herpetoid.application.catalog_service import (
     PENDING_CODE_KEY,
     SAVED_KEY,
@@ -130,11 +130,15 @@ class ObservationsScreen(QWidget):
         self.draw_button.setCheckable(True)
         self.draw_button.toggled.connect(self.viewer.set_draw_mode)
         self.draw_button.toggled.connect(self._on_draw_toggled)
-        clear_roi_button = QPushButton("Clear ROI")
-        clear_roi_button.clicked.connect(self.viewer.clear_roi)
+        self.clear_roi_button = QPushButton("Clear ROI")
+        self.clear_roi_button.setToolTip(
+            "Remove the marked region. On a saved observation this starts editing it, "
+            "and the change is stored when you save."
+        )
+        self.clear_roi_button.clicked.connect(self._on_clear_roi_clicked)
         # Polygon is placed by clicking points; right-click removes the last point, double-click closes
         # it — so no separate Finish/Undo buttons are needed.
-        for widget in (self.draw_button, clear_roi_button):
+        for widget in (self.draw_button, self.clear_roi_button):
             roi_row.addWidget(widget)
         roi_row.addStretch(1)
         # Rotate / reset live as a small floating toolbar in the image's corner (see RoiImageViewer),
@@ -343,32 +347,35 @@ class ObservationsScreen(QWidget):
         self._form.set_values(values)
         self._form_container_layout.addWidget(self._form)
 
-    def _species_fields(self, species_id: int) -> list[FieldDefinition]:
+    def _species_module(self, species_id: int) -> SpeciesModule | None:
+        """The species' module instance, or ``None`` — a broken module must not break the editor."""
         catalog = self._state.catalog
         if catalog is None:
-            return []
+            return None
         species = catalog.get_species(species_id)
         if species is None or species.module is None:
-            return []
+            return None
         if self._state.registry.module(species.module.plugin_id) is None:
+            return None
+        try:
+            return self._state.registry.create_module(species.module.plugin_id)
+        except Exception:
+            return None
+
+    def _species_fields(self, species_id: int) -> list[FieldDefinition]:
+        module = self._species_module(species_id)
+        if module is None:
             return []
         try:
-            module = self._state.registry.create_module(species.module.plugin_id)
             return list(module.define_observation_fields())
         except Exception:  # a broken module must not break the editor
             return []
 
     def _species_roi_spec(self, species_id: int) -> ROISpec | None:
-        catalog = self._state.catalog
-        if catalog is None:
-            return None
-        species = catalog.get_species(species_id)
-        if species is None or species.module is None:
-            return None
-        if self._state.registry.module(species.module.plugin_id) is None:
+        module = self._species_module(species_id)
+        if module is None:
             return None
         try:
-            module = self._state.registry.create_module(species.module.plugin_id)
             return module.define_species_profile().roi
         except Exception:  # a broken module must not break the editor
             return None
@@ -480,9 +487,14 @@ class ObservationsScreen(QWidget):
             observation.individual_id = None
         catalog.update_observation(observation)
         if self._current_image is not None and self._current_image.id is not None:
+            # A cleared region must be *forgotten*, not merely left off the screen: skipping the
+            # write here used to leave the old polygon in the database, so it reappeared as soon as
+            # the observation was re-selected and the "Saved" tick never went away.
             roi = self.viewer.roi()
             if roi is not None:
                 catalog.set_image_roi(self._current_image.id, roi)
+            else:
+                catalog.clear_image_roi(self._current_image.id)
         missing = self._missing_details()
         if missing:
             missing_note = f"Missing information: {', '.join(missing)}."
@@ -521,7 +533,27 @@ class ObservationsScreen(QWidget):
         individual = catalog.get_individual(observation.individual_id)
         return individual.code if individual is not None else ""
 
+    def _start_editing(self) -> None:
+        """Reaching for an ROI tool *is* the intent to edit, so a saved observation unlocks itself.
+
+        The alternative — a dead button until "Edit" is pressed — is the same trap in a new shape:
+        the control is there, it looks clickable, and nothing happens.
+        """
+        if self._locked:
+            self._apply_locked(False)
+
+    def _on_clear_roi_clicked(self) -> None:
+        """Drop the marked region. It is only *forgotten* once the observation is saved."""
+        self._start_editing()
+        self.draw_button.setChecked(False)
+        self.viewer.clear_roi()
+        self.status_label.setText(
+            "Region cleared — draw a new one, or save to store the observation without a region."
+        )
+
     def _on_draw_toggled(self, checked: bool) -> None:
+        if checked:
+            self._start_editing()
         self.status_label.setText("Marking ROI — drawing enabled." if checked else "")
 
     def _update_preview(self) -> None:
@@ -548,6 +580,7 @@ class ObservationsScreen(QWidget):
             self.location_edit,
             self.save_button,
             self.draw_button,
+            self.clear_roi_button,
         ):
             widget.setEnabled(enabled)
 
@@ -564,9 +597,10 @@ class ObservationsScreen(QWidget):
             self.lat_edit,
             self.lon_edit,
             self.location_edit,
-            self.draw_button,
         ):
             widget.setEnabled(not locked)
+        # The ROI tools stay usable: clicking one unlocks the observation (see _start_editing),
+        # which is what the user meant by reaching for them.
         if self._form is not None:
             self._form.setEnabled(not locked)
         if locked:

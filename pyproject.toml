@@ -69,6 +69,7 @@ orb = "herpetoid.plugins.algorithms.orb:OrbAlgorithm"
 
 [project.entry-points."herpetoid.species_modules"]
 calotriton_asper = "herpetoid.plugins.species.calotriton_asper:CalotritonAsperModule"
+salamandra_salamandra = "herpetoid.plugins.species.salamandra_salamandra:SalamandraSalamandraModule"
 
 [tool.setuptools]
 package-dir = { "" = "src" }

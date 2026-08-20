@@ -117,6 +117,14 @@ def test_roi_persistence_and_observation_update(tmp_path: Path) -> None:
     assert loaded_roi.kind is ROIKind.RECTANGLE
     assert loaded_roi.bounding_box() == (5, 6, 40, 30)
 
+    # …and a ROI can be taken back off an image again, idempotently.
+    assert catalog.clear_image_roi(image.id) is True
+    assert catalog.get_image_roi(image.id) is None
+    assert catalog.has_roi(observation.id) is False
+    assert catalog.clear_image_roi(image.id) is False  # nothing left to remove
+    catalog.set_image_roi(image.id, ROI.rectangle(5, 6, 40, 30))  # restored for the checks below
+    assert catalog.get_image_roi(image.id) is not None
+
     # observation update (core fields + measurements)
     observation.observer = "BM"
     observation.notes = "a note"

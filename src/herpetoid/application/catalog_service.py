@@ -272,3 +272,10 @@ class CatalogService:
 
         with self._project.database.session() as session:
             ImageRepository(session).set_roi(image_id, roi)
+
+    def clear_image_roi(self, image_id: int) -> bool:
+        """Forget an image's ROI. Returns whether one was stored. Idempotent."""
+        from herpetoid.infrastructure.db.repositories import ImageRepository
+
+        with self._project.database.session() as session:
+            return ImageRepository(session).clear_roi(image_id)

@@ -36,3 +36,10 @@ Confirmed individuals appear on the **Individuals** tab, and recaptures feed the
 ORB detects distinctive keypoints, matches them between two images (with a ratio test), and verifies the
 match geometrically (RANSAC homography). The score combines the number of verified inliers, the inlier
 ratio, and the geometric plausibility of the match.
+
+The algorithm never sees your photograph directly: the **species module** turns the region you marked
+into a normalized pattern image first, and that is what gets matched. Both modules that ship with
+HerpetoID throw the lighting away at this step — uneven torchlight and shadows vary slowly across a
+photograph, a spot does not — and each reads its pattern from the property that carries it: brightness
+for the brook newt's dark belly spots, colour for the fire salamander's yellow. Scores from different
+species are therefore not comparable with each other; what matters is the ranking within one query.

@@ -11,8 +11,30 @@ modifying the core.
 
 **Website: <https://calotriton.github.io/HerpetoID/>** — what it does, how it works, and downloads.
 
-> Status: early development. The desktop application, the plugin SDK and the first species module
-> (*Calotriton asper*) work end to end; the layer boundaries below are enforced by the test suite.
+> Status: early development. The desktop application, the plugin SDK and two species modules
+> (*Calotriton asper*, *Salamandra salamandra*) work end to end; the layer boundaries below are
+> enforced by the test suite.
+
+## Species modules included
+
+| Module | Pattern | Channel | Normalization |
+|---|---|---|---|
+| *Calotriton asper* (Pyrenean brook newt) | Ventral spots, polygon ROI | Lightness — the pattern *is* a lightness pattern | Band-pass |
+| *Salamandra salamandra* (fire salamander) | Dorsal yellow on black, polygon ROI | CIE Lab **b\*** yellowness | Band-pass |
+
+Both modules face the same problem — animals photographed wet, at night, under a torch — and both
+solve it the same way: the illumination varies slowly across a frame while the pattern does not, so a
+**band-pass** separates them, with widths expressed as fractions of the marked region so the filter
+follows the animal's size rather than the photographer's distance. Replacing global histogram
+equalization with this took first-place matches from 26/40 to 40/40 for the newt and from 22/40 to
+40/40 for the salamander under simulated field lighting.
+
+What is genuinely species-specific is the **channel**: a fire salamander's yellow-on-black is a
+higher-contrast signal in `b*` than in grey, which yields more repeatable keypoints, while a brook
+newt's dark-on-pale belly has no chromatic axis to move to. That choice is worth a modest extra
+margin, not the bulk of the improvement. All of these figures come from **synthetic** captures under
+a modelled set of nuisances (the generators are in `tests/test_plugins.py`) — they compare recipes
+against each other and are not validation against a real catalogue.
 
 ---
 

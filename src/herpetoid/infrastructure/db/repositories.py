@@ -305,6 +305,16 @@ class ImageRepository:
             model.kind = str(roi.kind)
             model.points = points
 
+    def clear_roi(self, image_id: int) -> bool:
+        """Remove an image's stored ROI. Returns whether there was one. Idempotent."""
+        model = self._session.scalars(
+            select(ImageRoiModel).where(ImageRoiModel.image_id == image_id)
+        ).first()
+        if model is None:
+            return False
+        self._session.delete(model)
+        return True
+
 
 class ObservationRepository:
     def __init__(self, session: Session) -> None:

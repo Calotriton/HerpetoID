@@ -1,10 +1,12 @@
-"""Tests for the first-party plugins (ORB algorithm + Calotriton asper module).
+"""Tests for the first-party plugins (ORB algorithm + the species modules).
 
 Includes the reusable conformance suites run against the real plugins, and an end-to-end
 identification pipeline that must rank the same individual above different ones.
 """
 
 from __future__ import annotations
+
+from dataclasses import dataclass
 
 import cv2
 import numpy as np
@@ -15,6 +17,7 @@ from herpetoid.application.registry import PluginRegistry
 from herpetoid.infrastructure.plugin_discovery import discover_entry_points
 from herpetoid.plugins.algorithms.orb import OrbAlgorithm
 from herpetoid.plugins.species.calotriton_asper import CalotritonAsperModule
+from herpetoid.plugins.species.salamandra_salamandra import SalamandraSalamandraModule
 from herpetoid.testing import AlgorithmContract, SpeciesModuleContract
 
 
@@ -107,12 +110,313 @@ def test_rank_puts_same_individual_first() -> None:
     assert ranked.candidates[0].target_ref == "same-individual"
 
 
+def _newt_belly(seed: int, background_seed: int | None = None) -> np.ndarray:
+    """A Calotriton asper belly: dark spots on a pale ground, held over wet rock (RGB)."""
+    rng = np.random.default_rng(seed)
+    stone = np.random.default_rng(seed if background_seed is None else background_seed)
+    image = (
+        stone.integers(60, 110, size=(300, 512, 1)).astype(np.uint8).repeat(3, axis=2)
+        * np.array([0.95, 0.98, 1.0])
+    ).astype(np.uint8)
+    body = np.zeros(image.shape[:2], np.uint8)
+    cv2.fillPoly(body, [np.array(_BODY, np.int32).reshape(-1, 1, 2)], 255)
+    image[body > 0] = (224, 172, 110)  # pale orange ventral ground
+    for _ in range(rng.integers(26, 36)):  # the individual's dark ventral spots
+        blob = np.zeros(image.shape[:2], np.uint8)
+        cv2.ellipse(
+            blob,
+            (int(rng.integers(90, 430)), int(rng.integers(100, 210))),
+            (int(rng.integers(7, 18)), int(rng.integers(5, 13))),
+            int(rng.integers(0, 180)),
+            0,
+            360,
+            255,
+            -1,
+        )
+        image[cv2.bitwise_and(blob, body) > 0] = (54, 44, 40)
+    return cv2.GaussianBlur(image, (3, 3), 0)
+
+
+def test_calotriton_band_pass_survives_wet_field_lighting() -> None:
+    """A newt is photographed straight out of a stream, so its belly is wet and reflective.
+
+    Its pattern is a *lightness* pattern, so no colour channel can rescue it — but the illumination
+    is a low spatial frequency and the spots are not, which is what the band-pass exploits. The old
+    global-histogram default is kept as a config option, and must do measurably worse here.
+    """
+    catalog, queries = _wet_captures(_newt_belly, np.random.default_rng(9))
+    roi = _body_roi()
+    band = _rank_catalog(CalotritonAsperModule(), roi, catalog, queries)
+    equalized = _rank_catalog(
+        CalotritonAsperModule(config={"normalization": "equalize"}), roi, catalog, queries
+    )
+    assert band.hits == band.queries, f"the band-pass missed {band.queries - band.hits}"
+    assert band.worst_same > band.best_other, "true matches must outscore false ones"
+    # The effect is large: on these captures the band-pass roughly doubles the score a true
+    # recapture earns, and global equalization drops some true matches to zero.
+    assert band.mean_same > equalized.mean_same + 0.15
+    assert band.worst_same > equalized.worst_same
+
+
+def test_calotriton_still_handles_a_clean_capture() -> None:
+    """The old default was never wrong for even, standardised photographs — nor is the new one."""
+    module = CalotritonAsperModule()
+    roi = _body_roi()
+    animal = _newt_belly(41)
+    query = OrbAlgorithm().extract_features(module.preprocess(_rotate(animal, 9), roi))
+    target = OrbAlgorithm().extract_features(module.preprocess(animal, roi))
+    other = OrbAlgorithm().extract_features(module.preprocess(_newt_belly(42), roi))
+    algorithm = OrbAlgorithm()
+    assert algorithm.compare(query, target).normalized_score > 0.5
+    assert (
+        algorithm.compare(query, target).normalized_score
+        > algorithm.compare(query, other).normalized_score
+    )
+
+
 def test_first_party_plugins_discoverable_via_entry_points() -> None:
     registry = PluginRegistry()
     discover_entry_points(registry)
     assert registry.algorithm("orb") is not None
-    assert registry.module("calotriton_asper") is not None
-    # capability matching wires the module to the ORB algorithm
-    module = registry.create_module("calotriton_asper")
-    compatible = registry.algorithms_for(module.compatible_algorithms())
-    assert "orb" in {record.descriptor.algorithm_id for record in compatible}
+    for module_id in ("calotriton_asper", "salamandra_salamandra"):
+        assert registry.module(module_id) is not None
+        # capability matching wires each module to the ORB algorithm
+        module = registry.create_module(module_id)
+        compatible = registry.algorithms_for(module.compatible_algorithms())
+        assert "orb" in {record.descriptor.algorithm_id for record in compatible}
+
+
+def test_species_modules_do_not_collide() -> None:
+    """Two modules must not claim the same id or the same species."""
+    registry = PluginRegistry()
+    discover_entry_points(registry)
+    records = registry.modules()
+    ids = [r.descriptor.module_id for r in records]
+    species = [name for r in records for name in r.descriptor.supported_species]
+    assert len(ids) == len(set(ids))
+    assert len(species) == len(set(species))
+
+
+# ---------------------------------------------------------------------------------------------
+# Salamandra salamandra: a black animal patterned in yellow, photographed in the field.
+# ---------------------------------------------------------------------------------------------
+_BODY = ((60, 100), (260, 60), (450, 105), (450, 200), (250, 250), (60, 205))
+
+
+def _fire_salamander(seed: int, background_seed: int | None = None) -> np.ndarray:
+    """A black-bodied, yellow-blotched animal on leaf litter (RGB, as the image store loads)."""
+    rng = np.random.default_rng(seed)
+    litter = np.random.default_rng(seed if background_seed is None else background_seed)
+    image = (
+        litter.integers(70, 130, size=(300, 512, 1)).astype(np.uint8).repeat(3, axis=2)
+        * np.array([1.0, 0.78, 0.5])
+    ).astype(np.uint8)
+    body = np.zeros(image.shape[:2], np.uint8)
+    cv2.fillPoly(body, [np.array(_BODY, np.int32).reshape(-1, 1, 2)], 255)
+    image[body > 0] = (28, 24, 22)  # glossy black skin
+    for _ in range(rng.integers(14, 20)):  # the individual's unique yellow blotches
+        blob = np.zeros(image.shape[:2], np.uint8)
+        cv2.ellipse(
+            blob,
+            (int(rng.integers(90, 430)), int(rng.integers(100, 210))),
+            (int(rng.integers(10, 26)), int(rng.integers(7, 18))),
+            int(rng.integers(0, 180)),
+            0,
+            360,
+            255,
+            -1,
+        )
+        image[cv2.bitwise_and(blob, body) > 0] = (236, 196, 40)
+    return cv2.GaussianBlur(image, (3, 3), 0)
+
+
+def _field_capture(image: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """The same animal photographed again, at night, by hand: new pose, exposure, colour cast,
+    a shadow across the body and specular glare on the wet skin."""
+    h, w = image.shape[:2]
+    matrix = cv2.getRotationMatrix2D((w / 2, h / 2), float(rng.uniform(-12, 12)), 1.05)
+    out = cv2.warpAffine(image, matrix, (w, h), borderMode=cv2.BORDER_REFLECT).astype(np.float32)
+
+    start = float(rng.uniform(0.35, 0.7))  # torchlight falls off across the frame
+    gradient = np.linspace(start, start + 0.8, w, dtype=np.float32)[None, :, None]
+    if rng.random() < 0.5:
+        gradient = gradient[:, ::-1, :]
+    cast = np.array(rng.choice([[1.25, 1.02, 0.72], [0.78, 0.94, 1.28]]), np.float32)
+    out = out * gradient * cast * float(rng.uniform(0.75, 1.25))
+
+    shadow = np.ones(out.shape[:2], np.float32)  # a leaf or the observer's hand
+    cv2.line(shadow, (int(rng.integers(0, w)), 0), (int(rng.integers(0, w)), h), 0.45, 80)
+    out = out * cv2.GaussianBlur(shadow, (0, 0), 11)[..., None]
+
+    for _ in range(4):  # specular highlights on wet skin
+        spot = np.zeros(out.shape[:2], np.float32)
+        cv2.circle(spot, (int(rng.integers(100, 420)), int(rng.integers(90, 220))), 18, 1.0, -1)
+        spot = cv2.GaussianBlur(spot, (0, 0), 8)
+        out = out * (1 - spot[..., None]) + 255.0 * spot[..., None]
+    return np.clip(out, 0, 255).astype(np.uint8)
+
+
+def _body_roi() -> api.ROI:
+    return api.ROI(kind=api.ROIKind.POLYGON, points=tuple((float(x), float(y)) for x, y in _BODY))
+
+
+class TestSalamandraConformance(SpeciesModuleContract):
+    def make_module(self) -> api.SpeciesModule:
+        return SalamandraSalamandraModule()
+
+
+def test_salamandra_profile() -> None:
+    profile = SalamandraSalamandraModule().define_species_profile()
+    assert profile.scientific_name == "Salamandra salamandra"
+    assert profile.pattern_region == "dorsal"
+    assert profile.roi.kind is api.ROIKind.POLYGON
+    assert not profile.roi.allow_auto_suggest  # the region is drawn by hand
+    assert {f.key for f in profile.measurements} == {
+        "svl",
+        "total_length",
+        "weight",
+        "sex",
+        "life_stage",
+        "pattern_type",
+    }
+    assert api.AlgorithmFamily.KEYPOINT in profile.compatible_algorithms.families
+    assert {s.key for s in profile.derived_statistics} >= {
+        "mean_svl",
+        "sex_ratio",
+        "pattern_types",
+        "body_condition",
+    }
+
+
+def test_salamandra_body_condition_statistic() -> None:
+    """The declared DERIVED statistic is Fulton's K, and ignores incomplete or absurd records."""
+    spec = next(
+        s
+        for s in SalamandraSalamandraModule().define_species_profile().derived_statistics
+        if s.key == "body_condition"
+    )
+    assert spec.compute is not None
+    assert spec.compute({"svl": 100.0, "weight": 40.0}) == pytest.approx(4.0)
+    assert spec.compute({"svl": 100.0}) is None  # no weight
+    assert spec.compute({"svl": 0.0, "weight": 40.0}) is None  # would divide by zero
+    assert spec.compute({"svl": "long", "weight": 40.0}) is None  # not a number
+
+
+def test_salamandra_preprocess_extracts_the_yellow_pattern() -> None:
+    """The pattern map must carry the blotches, not the illumination.
+
+    The test for that is direct: photograph the same animal under two very different lightings and
+    the extracted pattern must come out nearly the same.
+    """
+    module = SalamandraSalamandraModule()
+    animal = _fire_salamander(3)
+    roi = _body_roi()
+    sample = module.preprocess(_field_capture(animal, np.random.default_rng(0)), roi)
+
+    assert sample.is_grayscale
+    assert sample.image.dtype == np.uint8
+    assert sample.roi_mask is not None
+    assert sample.meta["pattern_source"] == "lab_b"  # read chromatically, not from luminance
+
+    warm = np.clip(animal * np.array([1.3, 1.0, 0.7]), 0, 255).astype(np.uint8)
+    gradient = np.linspace(0.4, 1.3, animal.shape[1], dtype=np.float32)[None, :, None]
+    dim = np.clip(animal * gradient, 0, 255).astype(np.uint8)
+    warm_pattern = module.preprocess(warm, roi).image.astype(float)
+    dim_pattern = module.preprocess(dim, roi).image.astype(float)
+    assert float(np.mean(np.abs(warm_pattern - dim_pattern))) < 12.0, (
+        "a colour cast and a light gradient must not change the extracted pattern"
+    )
+
+
+def test_salamandra_preprocess_survives_a_greyscale_capture() -> None:
+    """Monochrome material still works — with a warning, since colour is what the module reads."""
+    module = SalamandraSalamandraModule()
+    grey = cv2.cvtColor(_fire_salamander(4), cv2.COLOR_RGB2GRAY)
+    sample = module.preprocess(grey, _body_roi())
+    assert sample.is_grayscale
+    assert sample.meta["pattern_source"] == "intensity"
+
+    result = module.validate_image(grey)
+    assert result.ok  # a warning, not a rejection
+    assert [issue.code for issue in result.warnings] == ["monochrome"]
+    assert not SalamandraSalamandraModule().validate_image(_fire_salamander(4)).warnings
+
+
+@dataclass(frozen=True)
+class _Ranking:
+    """How a preprocessing choice performs over a catalog: hits, and how convincing the evidence is."""
+
+    hits: int
+    queries: int
+    mean_same: float
+    worst_same: float
+    best_other: float
+
+
+def _rank_catalog(module: api.SpeciesModule, roi: api.ROI, catalog, queries) -> _Ranking:
+    """Rank every query against the whole catalog with ORB, and summarize."""
+    algorithm = OrbAlgorithm()
+    features = {
+        seed: algorithm.extract_features(module.preprocess(image, roi))
+        for seed, image in catalog.items()
+    }
+    same, other, hits = [], [], 0
+    for seed, image in queries.items():
+        query = algorithm.extract_features(module.preprocess(image, roi))
+        scored = {
+            target: algorithm.compare(query, features[target]).normalized_score for target in features
+        }
+        same.append(scored[seed])
+        other.extend(score for target, score in scored.items() if target != seed)
+        hits += int(max(scored, key=lambda key: scored[key]) == seed)
+    return _Ranking(hits, len(queries), float(np.mean(same)), float(np.min(same)), float(np.max(other)))
+
+
+_WET_SEEDS = tuple(range(30, 36))
+
+
+def _wet_captures(make, rng, seeds=_WET_SEEDS):
+    """A catalog and a query set of the same animals, photographed on different substrates."""
+    catalog = {seed: _field_capture(make(seed, 500 + seed), rng) for seed in seeds}
+    queries = {seed: _field_capture(make(seed, 900 + seed), rng) for seed in seeds}
+    return catalog, queries
+
+
+def test_salamandra_yellowness_channel_earns_its_place() -> None:
+    """The species-specific decision this module makes, measured rather than asserted.
+
+    Same captures, same band-pass, same algorithm — only the *channel* differs. The margin is real
+    but **modest**: once the band-pass has removed the illumination, band-passed luminance also ranks
+    these captures correctly. Yellow on black is simply a higher-contrast signal in ``b*`` than in
+    grey, which yields more repeatable keypoints — this is not an illumination-invariance argument,
+    and measuring one nuisance at a time shows ``b*`` is in fact *more* sensitive to colour casts.
+    """
+    catalog, queries = _wet_captures(_fire_salamander, np.random.default_rng(5))
+    roi = _body_roi()
+    chromatic = _rank_catalog(SalamandraSalamandraModule(), roi, catalog, queries)
+    achromatic = _rank_catalog(
+        SalamandraSalamandraModule(config={"channel": "luminance"}), roi, catalog, queries
+    )
+    assert chromatic.hits == chromatic.queries
+    assert chromatic.worst_same > chromatic.best_other, "true matches must outscore false ones"
+    assert chromatic.mean_same > achromatic.mean_same, (
+        "if luminance matched it here, the chromatic default would be unjustified"
+    )
+
+
+def test_salamandra_roi_margin_keeps_edge_keypoints() -> None:
+    """Cropping flush to the ROI feeds the pattern's edge into ORB's blind border; the margin
+    (``roi_margin``) is what keeps those keypoints, so it must widen the sample."""
+    capture = _field_capture(_fire_salamander(9), np.random.default_rng(2))
+    roi = _body_roi()
+    flush = SalamandraSalamandraModule(config={"roi_margin": 0}).preprocess(capture, roi)
+    padded = SalamandraSalamandraModule().preprocess(capture, roi)
+    assert padded.image.shape[0] > flush.image.shape[0]
+    assert padded.image.shape[1] > flush.image.shape[1]
+    assert padded.roi_mask is not None and padded.roi_mask.shape[:2] == padded.image.shape[:2]
+
+    algorithm = OrbAlgorithm()
+    assert (
+        algorithm.extract_features(padded).descriptors.shape[0]
+        > algorithm.extract_features(flush).descriptors.shape[0]
+    )

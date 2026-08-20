@@ -1,7 +1,9 @@
 # Getting Started
 
 HerpetoID identifies and re-identifies **individual animals** from photographs of their unique natural
-markings (for example, the ventral spot pattern of the Pyrenean brook newt, *Calotriton asper*).
+markings. Two species ship with the application: the Pyrenean brook newt (*Calotriton asper*), read
+from its ventral spot pattern, and the fire salamander (*Salamandra salamandra*), read from the
+yellow blotches and stripes on its back.
 
 ## The workflow
 

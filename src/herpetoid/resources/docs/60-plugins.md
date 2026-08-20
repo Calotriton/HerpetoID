@@ -9,6 +9,22 @@ HerpetoID is a platform. Two kinds of plugin extend it:
 
 The **Plugins** tab lists everything currently installed, with its version and where it was loaded from.
 
+## What ships with HerpetoID
+
+| Plugin | Kind | What it does |
+|---|---|---|
+| *Calotriton asper* (Pyrenean brook newt) | Species module | Ventral spot pattern. You outline the belly; the module reads the spots from brightness, because that is what the pattern is made of. |
+| *Salamandra salamandra* (fire salamander) | Species module | Dorsal yellow-on-black pattern, read from **colour** — yellow against black is a stronger signal than light against dark. |
+| ORB | Algorithm | Keypoint matching with geometric verification. Works with both species modules. |
+
+Both species modules discard the lighting the same way before matching: uneven torchlight, a shadow
+or an over-warm flash change slowly across a photograph, while a spot or a blotch does not, so the
+module keeps the pattern's own scale and subtracts the rest. This is why a capture taken at the
+stream at night can still match one taken the year before in different light.
+
+Each species module decides which region carries the pattern, how to prepare it, which measurements
+you record and which statistics are computed — which is why the two look different in the app.
+
 ## Installing plugins
 
 Plugins are discovered two ways:

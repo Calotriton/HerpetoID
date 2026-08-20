@@ -57,6 +57,11 @@ Outline the region of interest: the belly plate, the head shields, the plastron.
 is, and how it should be normalised and cleaned up before matching, is defined by the species
 module, not hard-coded into the application.
 
+How the pattern is read matters as much as where it is. Both modules that ship with HerpetoID discard
+the lighting before matching — illumination changes slowly across a photograph while a spot or a
+blotch does not — and then read the pattern from whichever property carries it: brightness for the
+brook newt's dark belly spots, colour for the fire salamander's yellow on black.
+
 ### 4. Search the catalogue
 
 The matching algorithm compares the pattern against every individual already in the project and
@@ -140,6 +145,8 @@ the data you do not want on someone else's server.
 ## Current status
 
 HerpetoID is in **early development** and under active work. The architecture and the core workflow
-are in place; packaged releases and additional species modules are being prepared. Progress is
-announced on the [news page]({{ '/news/' | relative_url }}), and the full source is
-[on GitHub]({{ site.github_repo_url }}).
+are in place, and two species modules ship with the application: the Pyrenean brook newt
+(*Calotriton asper*), matched on its ventral spots, and the fire salamander (*Salamandra
+salamandra*), matched on the yellow pattern on its back. Packaged releases and further modules are
+being prepared. Progress is announced on the [news page]({{ '/news/' | relative_url }}), and the full
+source is [on GitHub]({{ site.github_repo_url }}).

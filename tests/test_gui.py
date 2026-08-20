@@ -1310,6 +1310,83 @@ def test_individual_editor_updates_code_and_measurements(
     assert reloaded_obs.measurements["svl"] == 48.5
 
 
+def test_clearing_a_roi_removes_it_for_good(app_state: AppState, tmp_path: Path, qtbot) -> None:
+    """Regression: clearing a region only wiped the screen.
+
+    Reported together: on a saved (read-only) observation the region vanished from the view while
+    "Draw polygon" was disabled, leaving no way to put it back — and saving never wrote the *absence*
+    of a region, so the old polygon stayed in the database and reappeared on re-selection.
+
+    The ROI tools are therefore never disabled on a loaded observation: reaching for one *is* the
+    intent to edit, so it unlocks the observation itself rather than sitting there doing nothing.
+    """
+    from PIL import Image as PilImage
+
+    from herpetoid.api import ROI
+    from herpetoid.domain import PluginRef
+    from herpetoid.gui.screens.observations import ObservationsScreen
+
+    app_state.create_project(tmp_path / "proj", "P")
+    catalog = app_state.catalog
+    assert catalog is not None
+    species = catalog.ensure_species(
+        "Calotriton asper", module=PluginRef("calotriton_asper", "1.0")
+    )
+    assert species.id is not None
+    for name in ("a.png", "b.png"):
+        path = tmp_path / name
+        PilImage.fromarray(np.full((64, 64, 3), 120, np.uint8)).save(path)
+        catalog.import_observation(species.id, [path])
+
+    screen = ObservationsScreen(app_state)
+    qtbot.addWidget(screen)
+    first, second = (obs.id for obs in catalog.list_observations())
+    assert first is not None and second is not None
+    image_id = catalog.images_for(first)[0].id
+    assert image_id is not None
+
+    # Mark a region and save it, as the user would.
+    screen.select_observation(first)
+    screen.viewer.set_roi(ROI.rectangle(5, 5, 40, 40))
+    screen.save()
+    assert catalog.get_image_roi(image_id) is not None
+    by_id = {int(screen.table.item(r, 0).text()): r for r in range(screen.table.rowCount())}
+    assert screen.table.item(by_id[first], 3).text() == "✓"  # the "Saved" tick
+
+    # Re-opened locked: the text fields are read-only behind "Edit", but the ROI tools stay live.
+    assert screen.save_button.text() == "Edit"
+    assert not screen.observer_edit.isEnabled()
+    assert screen.draw_button.isEnabled()
+    assert screen.clear_roi_button.isEnabled()
+
+    # Clearing works straight away and takes the observation into edit mode with it.
+    screen.clear_roi_button.click()
+    assert screen.viewer.roi() is None
+    assert not screen._locked
+    assert screen.save_button.text() == "Save changes"
+    assert screen.observer_edit.isEnabled()
+    assert screen.draw_button.isEnabled()  # still able to draw a replacement
+    assert "cleared" in screen.status_label.text()
+    screen.save()
+
+    # Gone from the database, gone from the table, and gone after navigating away and back.
+    assert catalog.get_image_roi(image_id) is None
+    assert not catalog.has_roi(first)
+    by_id = {int(screen.table.item(r, 0).text()): r for r in range(screen.table.rowCount())}
+    assert screen.table.item(by_id[first], 3).text() == ""
+    screen.select_observation(second)
+    screen.select_observation(first)
+    assert screen.viewer.roi() is None, "the cleared region came back"
+
+    # Drawing on a saved observation unlocks it the same way, so a region can be replaced directly.
+    screen.viewer.set_roi(ROI.rectangle(8, 8, 30, 30))
+    screen.save()
+    assert screen.save_button.text() == "Edit"  # saved -> locked again
+    screen.draw_button.setChecked(True)
+    assert not screen._locked and screen.save_button.text() == "Save changes"
+    screen.draw_button.setChecked(False)
+
+
 def test_help_screen_renders_manual(qtbot) -> None:
     from herpetoid.gui.screens.help import HelpScreen
 
