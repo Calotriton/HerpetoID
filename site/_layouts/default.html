@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" href="{{ '/assets/img/favicon.svg' | relative_url }}" type="image/svg+xml">
   <link rel="stylesheet" href="{{ '/assets/css/main.css' | relative_url }}">
+  <meta name="theme-color" content="#faf8f4" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0a0d11" media="(prefers-color-scheme: dark)">
   <script>
     // Applied before first paint so the chosen theme never flashes the wrong colors.
     (function () {
@@ -22,7 +24,7 @@
     <div class="wrap header-inner">
       <a class="brand" href="{{ '/' | relative_url }}">
         {% include logo.svg %}
-        <span class="brand-name">Herpeto<strong>ID</strong></span>
+        <span class="brand-name">Herpeto<b>ID</b></span>
       </a>
 
       <nav class="site-nav" aria-label="Main">
@@ -31,8 +33,11 @@
         <a href="{{ '/news/' | relative_url }}" {% if p contains '/news' %}aria-current="page"{% endif %}>News</a>
         <a href="{{ site.github_repo_url }}" rel="noopener">GitHub</a>
         <a class="btn btn-sm" href="{{ '/download/' | relative_url }}">Download</a>
-        <button class="theme-toggle" type="button" aria-label="Switch between light and dark theme" title="Switch theme"></button>
       </nav>
+
+      <!-- Outside the nav: a theme switch is not a destination, and on a phone this keeps it on the
+           brand row instead of scrolling away with the links. -->
+      <button class="theme-toggle" type="button" aria-label="Switch between light and dark theme" title="Switch theme"></button>
     </div>
   </header>
 
@@ -53,13 +58,14 @@
         <a href="{{ '/feed.xml' | relative_url }}">RSS</a>
         <a href="{{ site.github_repo_url }}" rel="noopener">Source code</a>
         <a href="{{ site.github_repo_url }}/issues" rel="noopener">Report an issue</a>
+        <a href="{{ '/style-guide/' | relative_url }}">Design system</a>
       </nav>
     </div>
     <div class="wrap footer-legal">
       <p class="muted">
         Free and open source under the
         <a href="{{ site.github_repo_url }}/blob/main/LICENSE" rel="noopener">MIT license</a>.
-        Built for field ecologists.
+        Built for field ecologists. No trackers, no analytics, no third-party requests.
       </p>
     </div>
   </footer>

@@ -1,0 +1,192 @@
+---
+layout: page
+title: Design system
+subtitle: Every piece this site is built from. Compose new pages out of what is here — and if something is missing, add it here first.
+permalink: /style-guide/
+description: The HerpetoID website design system — tokens, typography and components.
+---
+
+<div class="callout">
+  <p><strong>The rule.</strong> Pages compose components; components own their styling; tokens own
+  every colour, radius and shadow. A page that needs a new look needs a new
+  <em>component</em>, defined in <code>assets/css/main.css</code> and shown on this page. Nothing
+  gets an inline <code>style</code> attribute and nothing hard-codes a colour —
+  <code>tests/test_site_design.py</code> fails the build if it does.</p>
+</div>
+
+<h2>Identity</h2>
+
+<p>
+  A field instrument, not a consumer app: graphite surfaces, one signal-amber accent, hairline rules,
+  and a faint graph-paper grid behind the hero. The application's own interface uses a teal palette —
+  the site is deliberately its own thing.
+</p>
+
+<p>
+  Monospace is reserved for <em>machine</em> text: labels, metadata, counters, file names, code and
+  measurements. Prose is always in the system sans, because a page of monospace is a page nobody
+  reads. If you are unsure which a piece of text is, ask whether a program produced it.
+</p>
+
+<h2>Colour</h2>
+
+<p>
+  Two accent tokens exist because a colour bright enough to fill a button is never dark enough to be
+  body text on paper: <code>--accent</code> fills, <code>--accent-text</code> writes. Use
+  <code>--data</code> only inside diagrams, never in the interface, so the chrome keeps a single
+  accent while a figure can still show two series.
+</p>
+
+<div class="swatches">
+  <div class="swatch sw-accent"><span></span><code>--accent</code></div>
+  <div class="swatch sw-accent-soft"><span></span><code>--accent-soft</code></div>
+  <div class="swatch sw-data"><span></span><code>--data</code></div>
+  <div class="swatch sw-bg"><span></span><code>--bg</code></div>
+  <div class="swatch sw-surface"><span></span><code>--surface</code></div>
+  <div class="swatch sw-surface-2"><span></span><code>--surface-2</code></div>
+  <div class="swatch sw-line"><span></span><code>--line</code></div>
+  <div class="swatch sw-line-strong"><span></span><code>--line-strong</code></div>
+  <div class="swatch sw-text"><span></span><code>--text</code></div>
+  <div class="swatch sw-text-dim"><span></span><code>--text-dim</code></div>
+  <div class="swatch sw-text-faint"><span></span><code>--text-faint</code></div>
+</div>
+
+<p class="muted">
+  Both themes are first-class. Define the light value on <code>:root</code>, then override only what
+  differs in <em>both</em> the <code>prefers-color-scheme</code> block and the
+  <code>[data-theme="dark"]</code> block — the toggle needs the second one. Use the switch in the
+  header to check any new component in both.
+</p>
+
+<h2>Type</h2>
+
+<div class="specimen specimen--block">
+  <h1>Heading level 1</h1>
+  <h2>Heading level 2</h2>
+  <h3>Heading level 3</h3>
+  <p class="lede">A lede sets up a page in one sentence and stays under about 46 characters a line.</p>
+  <p>Body copy runs at 17px with generous line height, capped near 68 characters so it stays readable on a wide screen.</p>
+  <span class="label">Machine label / mono / uppercase</span>
+  <p class="muted">Muted text for supporting detail.</p>
+</div>
+
+<h2>Buttons</h2>
+
+<div class="specimen">
+  <a class="btn" href="#buttons">Primary action</a>
+  <a class="btn btn-secondary" href="#buttons">Secondary</a>
+  <a class="btn btn-sm" href="#buttons">Small</a>
+  <a class="btn btn-secondary btn-sm" href="#buttons">Small secondary</a>
+</div>
+
+<p class="muted">One primary action per view. Everything else is secondary or a plain link.</p>
+
+<h2>Pills, tags &amp; status</h2>
+
+<div class="specimen">
+  <span class="pill">Free &amp; open source</span>
+  <span class="tag">Species module</span>
+  <span class="tag">Release</span>
+</div>
+
+<div class="specimen">
+  <p class="status">
+    <span class="dot" aria-hidden="true"></span>
+    <b>Status</b> Early development
+    <span aria-hidden="true">&middot;</span>
+    2 species modules
+  </p>
+</div>
+
+<h2>Cards</h2>
+
+<div class="grid">
+  <div class="card">
+    <div class="card-icon" aria-hidden="true">&#9678;</div>
+    <h3>Card with icon</h3>
+    <p>A card holds one idea in about two sentences. The icon is decorative and always
+      <code>aria-hidden</code>.</p>
+  </div>
+  <div class="card">
+    <h3>Card without icon</h3>
+    <p>Use <code>.grid</code> for three-across, <code>.grid-4</code> for four short ones,
+      <code>.grid-2</code> for wide pairs.</p>
+  </div>
+</div>
+
+<h2>Panel</h2>
+
+<p>A framed figure with instrument corner marks. Use it for diagrams and screenshots.</p>
+
+<figure class="panel">
+  <svg viewBox="0 0 480 120" role="img" aria-label="Example panel content.">
+    <rect x="8" y="14" width="464" height="60" rx="8" fill="var(--surface-2)" stroke="var(--line)"/>
+    <g fill="var(--accent)">
+      <circle cx="70" cy="44" r="10"/>
+      <circle cx="150" cy="44" r="6" opacity="0.8"/>
+      <circle cx="240" cy="44" r="12"/>
+      <circle cx="330" cy="44" r="7" opacity="0.75"/>
+      <circle cx="410" cy="44" r="9" opacity="0.9"/>
+    </g>
+    <g font-family="ui-monospace, monospace" font-size="10" letter-spacing="1.2" fill="var(--text-faint)">
+      <text x="8" y="100">EXAMPLE READOUT</text>
+    </g>
+  </svg>
+  <figcaption>Captions are mono, short, and say what the reader is looking at.</figcaption>
+</figure>
+
+<h2>Steps</h2>
+
+<ol class="steps">
+  <li><div><h3>First</h3><p>Numbered automatically, in mono, zero-padded.</p></div></li>
+  <li><div><h3>Second</h3><p>Use for a sequence the reader will actually perform.</p></div></li>
+</ol>
+
+<h2>Spec list</h2>
+
+<p>Key/value facts. Preferred over a two-column table, which it replaces.</p>
+
+<dl class="spec-list">
+  <div><dt>Operating system</dt><dd>Windows 10 or 11 (64-bit)</dd></div>
+  <div><dt>Internet</dt><dd>Not required</dd></div>
+</dl>
+
+<h2>Table</h2>
+
+<p>For genuine multi-column data. Wrap it in <code>.table-scroll</code> so it never breaks the page on a phone.</p>
+
+<div class="table-scroll">
+  <table>
+    <thead><tr><th>Group</th><th>Where to look</th></tr></thead>
+    <tbody>
+      <tr><td>Newts &amp; salamanders</td><td>Ventral spots; dorsal yellow in <em>Salamandra</em></td></tr>
+      <tr><td>Snakes</td><td>Head scale arrangement, dorsal blotches</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>Callout</h2>
+
+<div class="callout">
+  <p><strong>For one thing worth stopping at.</strong> If a page has more than two, none of them
+  are working.</p>
+</div>
+
+<h2>Section headers</h2>
+
+<p>
+  On the landing page, sections are numbered like a spec document with
+  <code>data-index="01"</code> on <code>.section-head</code>. Keep them sequential, and leave the
+  attribute off inside prose pages.
+</p>
+
+<h2>Checklist for anything new</h2>
+
+<ol>
+  <li>Built from existing components? If not, the new component is defined in <code>main.css</code> and shown on this page.</li>
+  <li>Colours, radii and shadows come from tokens only.</li>
+  <li>Readable in light <em>and</em> dark — use the header toggle.</li>
+  <li>Keyboard reachable, with a visible focus ring; decorative marks are <code>aria-hidden</code>.</li>
+  <li>Works at 360px wide; wide content scrolls inside its own container.</li>
+  <li><code>pytest tests/test_site_design.py</code> passes.</li>
+</ol>

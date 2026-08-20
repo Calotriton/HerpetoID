@@ -19,57 +19,72 @@ description: >-
         <a class="btn" href="{{ '/download/' | relative_url }}">Download for Windows</a>
         <a class="btn btn-secondary" href="{{ '/how-it-works/' | relative_url }}">See how it works</a>
       </div>
-      <p class="hero-note">
-        Early development &mdash; the first packaged release is on its way.
-        <a href="{{ '/news/' | relative_url }}">Follow the news</a> to hear when it lands.
+      <p class="status">
+        <span class="dot" aria-hidden="true"></span>
+        <b>Status</b> Early development
+        <span aria-hidden="true">&middot;</span>
+        2 species modules
+        <span aria-hidden="true">&middot;</span>
+        <a href="{{ '/news/' | relative_url }}">First packaged release pending</a>
       </p>
     </div>
 
-    <figure class="figure">
-      <svg viewBox="0 0 480 300" role="img"
+    <figure class="panel">
+      <svg viewBox="0 0 480 306" role="img"
            aria-label="A newt's ventral spot pattern from a field photograph compared against a catalogued individual, with corresponding spots linked and a similarity score of 94 per cent.">
-        <text x="8" y="28" fill="var(--muted)" font-size="12" font-family="inherit">Field photo &middot; ventral</text>
-        <text x="282" y="28" fill="var(--muted)" font-size="12" font-family="inherit">Catalogue &middot; CA-014</text>
+        <g font-family="ui-monospace, monospace" font-size="10" letter-spacing="1.2" fill="var(--text-faint)">
+          <text x="8" y="24">FIELD PHOTO / VENTRAL</text>
+          <text x="282" y="24">CATALOGUE / CA-014</text>
+        </g>
 
-        <rect x="8" y="40" width="190" height="190" rx="12" fill="var(--code-bg)" stroke="var(--border)"/>
-        <rect x="282" y="40" width="190" height="190" rx="12" fill="var(--code-bg)" stroke="var(--border)"/>
+        <rect x="8" y="36" width="190" height="190" rx="10" fill="var(--surface-2)" stroke="var(--line)"/>
+        <rect x="282" y="36" width="190" height="190" rx="10" fill="var(--surface-2)" stroke="var(--line)"/>
 
-        <g stroke="var(--accent)" stroke-width="1" stroke-dasharray="3 4" opacity="0.45">
-          <line x1="60" y1="90" x2="334" y2="95"/>
-          <line x1="120" y1="110" x2="394" y2="113"/>
-          <line x1="85" y1="150" x2="359" y2="153"/>
-          <line x1="140" y1="180" x2="414" y2="181"/>
-          <line x1="50" y1="195" x2="324" y2="198"/>
+        <!-- Registration marks, as on a measuring frame. -->
+        <g stroke="var(--line-strong)" stroke-width="1">
+          <path d="M8 60h6M8 131h6M8 202h6M192 60h6M192 131h6M192 202h6"/>
+          <path d="M282 60h6M282 131h6M282 202h6M466 60h6M466 131h6M466 202h6"/>
+        </g>
+
+        <g stroke="var(--data)" stroke-width="1" stroke-dasharray="3 4" opacity="0.75">
+          <line x1="60" y1="86" x2="334" y2="91"/>
+          <line x1="120" y1="106" x2="394" y2="109"/>
+          <line x1="85" y1="146" x2="359" y2="149"/>
+          <line x1="140" y1="176" x2="414" y2="177"/>
+          <line x1="50" y1="191" x2="324" y2="194"/>
         </g>
 
         <g fill="var(--accent)">
-          <circle cx="60" cy="90" r="12"/>
-          <circle cx="120" cy="110" r="8" opacity="0.8"/>
-          <circle cx="85" cy="150" r="10" opacity="0.9"/>
-          <circle cx="140" cy="180" r="14"/>
-          <circle cx="50" cy="195" r="6" opacity="0.7"/>
+          <circle cx="60" cy="86" r="11"/>
+          <circle cx="120" cy="106" r="7.5" opacity="0.8"/>
+          <circle cx="85" cy="146" r="9.5" opacity="0.9"/>
+          <circle cx="140" cy="176" r="13"/>
+          <circle cx="50" cy="191" r="5.5" opacity="0.7"/>
 
-          <circle cx="334" cy="95" r="12"/>
-          <circle cx="394" cy="113" r="8" opacity="0.8"/>
-          <circle cx="359" cy="153" r="10" opacity="0.9"/>
-          <circle cx="414" cy="181" r="14"/>
-          <circle cx="324" cy="198" r="6" opacity="0.7"/>
+          <circle cx="334" cy="91" r="11"/>
+          <circle cx="394" cy="109" r="7.5" opacity="0.8"/>
+          <circle cx="359" cy="149" r="9.5" opacity="0.9"/>
+          <circle cx="414" cy="177" r="13"/>
+          <circle cx="324" cy="194" r="5.5" opacity="0.7"/>
         </g>
 
-        <rect x="8" y="258" width="464" height="8" rx="4" fill="var(--border)"/>
-        <rect x="8" y="258" width="436" height="8" rx="4" fill="var(--accent)"/>
-        <text x="8" y="288" fill="var(--muted)" font-size="12" font-family="inherit">Rank 1 &middot; 94% similarity &middot; awaiting your confirmation</text>
+        <rect x="8" y="252" width="464" height="6" rx="3" fill="var(--line)"/>
+        <rect x="8" y="252" width="436" height="6" rx="3" fill="var(--accent)"/>
+        <g font-family="ui-monospace, monospace" font-size="10" letter-spacing="1.2">
+          <text x="8" y="282" fill="var(--text-dim)">RANK 1 &#183; 94% SIMILARITY</text>
+          <text x="472" y="282" fill="var(--text-faint)" text-anchor="end">AWAITING YOUR CONFIRMATION</text>
+        </g>
       </svg>
-      <figcaption>Illustration of the comparison view. Real screenshots arrive with the first release.</figcaption>
+      <figcaption>Comparison view &mdash; illustration. Real screenshots ship with the first release.</figcaption>
     </figure>
   </div>
 </section>
 
 <section class="section section-alt">
   <div class="wrap">
-    <div class="section-head">
+    <div class="section-head" data-index="01">
       <h2>Mark&ndash;recapture without the marks</h2>
-      <p class="muted">
+      <p>
         Amphibians and reptiles are awkward animals to mark. They are small, they shed, they are often
         strictly protected, and the classic methods &mdash; toe-clipping, branding, PIT tags &mdash;
         cost the animal something. Many of them, meanwhile, carry a pattern as individual as a
@@ -78,7 +93,7 @@ description: >-
       </p>
     </div>
 
-    <div class="cards cards-4">
+    <div class="grid grid-4">
       <div class="card">
         <div class="card-icon" aria-hidden="true">&#9678;</div>
         <h3>No permanent marking</h3>
@@ -105,15 +120,15 @@ description: >-
 
 <section class="section">
   <div class="wrap">
-    <div class="section-head">
+    <div class="section-head" data-index="02">
       <h2>What carries the pattern</h2>
-      <p class="muted">
+      <p>
         Different groups wear their identity in different places. A species module tells HerpetoID
         where to look and how to read it.
       </p>
     </div>
 
-    <div class="cards">
+    <div class="grid">
       <div class="card">
         <h3>Newts &amp; salamanders</h3>
         <p>Ventral spot and blotch patterns; the dorsal yellow of <em>Salamandra</em>. The classic, best-established photo-ID group.</p>
@@ -144,8 +159,9 @@ description: >-
 
 <section class="section section-alt">
   <div class="wrap">
-    <div class="section-head">
+    <div class="section-head" data-index="03">
       <h2>From photo to identified individual</h2>
+      <p>Four steps, and the last one is always yours.</p>
     </div>
 
     <ol class="steps">
@@ -175,15 +191,15 @@ description: >-
       </li>
     </ol>
 
-    <p style="margin-top:2rem"><a href="{{ '/how-it-works/' | relative_url }}">Read the full workflow &rarr;</a></p>
+    <p class="stack"><a href="{{ '/how-it-works/' | relative_url }}">Read the full workflow &rarr;</a></p>
   </div>
 </section>
 
 <section class="section">
   <div class="wrap">
-    <div class="section-head">
+    <div class="section-head" data-index="04">
       <h2>One platform, many species</h2>
-      <p class="muted">
+      <p>
         HerpetoID has no species baked into it. Each taxon arrives as a plugin that declares its own
         region of interest, its own field measurements &mdash; snout&ndash;vent length, sex, life
         stage, whatever your protocol records &mdash; and its own validation rules. The application
@@ -191,7 +207,7 @@ description: >-
       </p>
     </div>
 
-    <div class="cards">
+    <div class="grid">
       <div class="card">
         <h3>Species modules</h3>
         <p>Two ship today &mdash; the Pyrenean brook newt (<em>Calotriton asper</em>) and the fire salamander (<em>Salamandra salamandra</em>), each reading its pattern its own way. Add a viper or a tortoise without touching the core; new modules are announced here.</p>
@@ -212,7 +228,7 @@ description: >-
   <section class="cta">
     <h2>Get HerpetoID</h2>
     <p>A single download, no Python installation required. Run it from a folder on any Windows machine.</p>
-    <p style="margin-top:1.5rem">
+    <p class="stack-sm">
       <a class="btn" href="{{ '/download/' | relative_url }}">Go to downloads</a>
     </p>
   </section>
