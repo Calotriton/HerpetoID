@@ -197,6 +197,12 @@ class SpeciesRepository:
         stmt = select(SpeciesModel).order_by(SpeciesModel.scientific_name)
         return [_species_to_entity(model) for model in self._session.scalars(stmt)]
 
+    def delete(self, species_id: int) -> None:
+        """Remove a species row. Only safe once nothing references it (the caller checks)."""
+        model = self._session.get(SpeciesModel, species_id)
+        if model is not None:
+            self._session.delete(model)
+
 
 class IndividualRepository:
     def __init__(self, session: Session) -> None:
@@ -250,6 +256,13 @@ class IndividualRepository:
         model.sex = individual.sex.value
         model.notes = individual.notes
         model.status = individual.status.value
+
+    def set_species(self, individual_id: int, species_id: int) -> None:
+        """Move an individual to another species (see ``CatalogService.reassign_species``)."""
+        model = self._session.get(IndividualModel, individual_id)
+        if model is None:
+            raise KeyError(f"no individual with id {individual_id}")
+        model.species_id = species_id
 
     def count(self) -> int:
         return int(self._session.scalar(select(func.count()).select_from(IndividualModel)) or 0)
@@ -381,6 +394,13 @@ class ObservationRepository:
             row = MetadataModel(field_key=key)
             _assign_metadata_value(row, value)
             model.metadata_values.append(row)
+
+    def set_species(self, observation_id: int, species_id: int) -> None:
+        """Move an observation to another species (see ``CatalogService.reassign_species``)."""
+        model = self._session.get(ObservationModel, observation_id)
+        if model is None:
+            raise KeyError(f"no observation with id {observation_id}")
+        model.species_id = species_id
 
     def delete(self, observation_id: int) -> None:
         """Delete an observation and (via cascade) its images and metadata values."""

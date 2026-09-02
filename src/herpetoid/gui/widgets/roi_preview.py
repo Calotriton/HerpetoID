@@ -7,9 +7,9 @@ compared visually alongside the numeric data.
 from __future__ import annotations
 
 import numpy as np
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QPixmap
-from PySide6.QtWidgets import QFrame, QLabel, QWidget
+from PySide6.QtCore import QPoint, Qt
+from PySide6.QtGui import QAction, QPixmap
+from PySide6.QtWidgets import QFrame, QLabel, QMenu, QWidget
 
 from herpetoid.api import ROI, ROIKind
 
@@ -59,7 +59,12 @@ def roi_crop(image: np.ndarray | None, roi: ROI | None) -> np.ndarray | None:
 
 
 class RoiPreview(QLabel):
-    """A fixed-size panel that renders an image's ROI crop, or a placeholder when there is none."""
+    """A fixed-size panel that renders an image's ROI crop, or a placeholder when there is none.
+
+    Right-clicking offers the whole photograph the crop came out of (see
+    :class:`~herpetoid.gui.widgets.full_image.FullImageWindow`): a masked crop shows the pattern but
+    not the pose or the framing, which is often what settles a doubtful match.
+    """
 
     def __init__(
         self, width: int = 150, height: int = 120, parent: QWidget | None = None
@@ -68,13 +73,24 @@ class RoiPreview(QLabel):
         self.setFixedSize(width, height)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setFrameShape(QFrame.Shape.StyledPanel)
-        self.setToolTip("Selected ROI region")
+        self._image: np.ndarray | None = None
+        self._roi: ROI | None = None
+        self._title = "Full image"
+        self._window: QWidget | None = None  # kept alive; a local would be garbage-collected
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._show_context_menu)
         self.clear_preview()
 
-    def show_roi(self, image: np.ndarray | None, roi: ROI | None) -> None:
+    def show_roi(self, image: np.ndarray | None, roi: ROI | None, *, title: str = "") -> None:
+        """Render ``roi`` of ``image``. ``title`` names the pop-out window for this photograph."""
+        self._image = image
+        self._roi = roi
+        self._title = title or "Full image"
         crop = roi_crop(image, roi)
         if crop is None:
-            self.clear_preview()
+            self.setPixmap(QPixmap())
+            self.setText("No ROI")
+            self._update_tooltip()
             return
         pixmap = QPixmap.fromImage(ndarray_to_qimage(crop)).scaled(
             self.size(),
@@ -82,7 +98,42 @@ class RoiPreview(QLabel):
             Qt.TransformationMode.SmoothTransformation,
         )
         self.setPixmap(pixmap)
+        self._update_tooltip()
 
     def clear_preview(self) -> None:
+        self._image = None
+        self._roi = None
         self.setPixmap(QPixmap())
         self.setText("No ROI")
+        self._update_tooltip()
+
+    def has_full_image(self) -> bool:
+        """Whether there is a photograph behind this crop to pop out."""
+        return self._image is not None
+
+    def show_full_image(self) -> QWidget | None:
+        """Open the whole photograph this crop came from, with the region outlined."""
+        from herpetoid.gui.widgets.full_image import FullImageWindow
+
+        if self._image is None:
+            return None
+        window = FullImageWindow(self._image, roi=self._roi, title=self._title, parent=self)
+        self._window = window
+        window.show()
+        return window
+
+    def _update_tooltip(self) -> None:
+        self.setToolTip(
+            "Selected ROI region — right-click to see the full photograph"
+            if self._image is not None
+            else "Selected ROI region"
+        )
+
+    def _show_context_menu(self, position: QPoint) -> None:
+        if self._image is None:
+            return
+        menu = QMenu(self)
+        action = QAction("Show full image", menu)
+        action.triggered.connect(self.show_full_image)
+        menu.addAction(action)
+        menu.exec(self.mapToGlobal(position))

@@ -11,8 +11,18 @@ It has two modes, switched with the buttons at the top left:
 3. The ranked candidates appear as **Top matches** cards — each with its **similarity score**
    (1.0 = most similar) and the ROI crop. Select a card to see the **match evidence**: the two
    normalized patterns side by side with the matched spots joined by colored lines, plus inlier
-   counts. Use the overlay controls to hide lines/points, limit how many are drawn, or fade them.
+   counts. Each pattern sits in its own panel, named underneath — *Query* on the left, the
+   *Candidate* on the right — so there is never any doubt which is which. Use the overlay controls
+   to hide lines/points, limit how many are drawn, or fade them.
 4. Click **Show more candidates** to extend the ranking further down the catalog.
+
+### Seeing the whole photograph
+
+Both the match evidence and the ROI crops show *fragments* — the marked region, normalized. When the
+pose or the framing is what settles a doubtful match, **right-click** either the match evidence or a
+ROI crop and choose **Show full image**. A window opens with the whole photograph, the marked region
+outlined, and the usual zoom (mouse wheel) and pan (click-drag). It is not modal, so you can leave it
+open beside the comparison while you decide. On the match evidence the menu offers both sides.
 
 ## Compare A/B mode
 
@@ -28,6 +38,16 @@ typed in the Observations editor stays *pending* (shown as "CA-001 ?") until you
   individual (creating a new individual record if needed).
 - **Mark query as NEW individual** — creates a fresh individual for the query when it matches
   nothing, reusing the pending code you typed in the editor (or auto-generating one).
+
+The second button changes to say what it will actually do. If the query is **already** a cataloged
+individual — you are re-assessing it, say after changing the species — it reads **Not a recapture —
+keep CA-001**: there is no new individual to create, and the verdict keeps the identity and code it
+already has. To give it a *different* identity instead, edit the individual code on the Observations
+tab.
+
+After every decision the query moves on to the **next capture that has not been assessed yet**, so a
+season is worked through in one pass rather than starting from the top each time. It wraps around,
+and tells you when every marked capture has been through identification.
 
 Confirmed individuals appear on the **Individuals** tab, and recaptures feed the **Statistics**.
 

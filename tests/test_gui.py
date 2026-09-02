@@ -22,6 +22,14 @@ from herpetoid.infrastructure.settings_store import JsonSettingsStore
 pytestmark = pytest.mark.gui
 
 
+def _write_image(path: Path, size: int = 16) -> Path:
+    """A tiny real image on disk — enough for anything that only needs a decodable file."""
+    from PIL import Image as PilImage
+
+    PilImage.fromarray(np.zeros((size, size, 3), np.uint8)).save(path)
+    return path
+
+
 @pytest.fixture
 def app_state(tmp_path: Path, qtbot) -> AppState:
     registry = PluginRegistry()
@@ -254,8 +262,9 @@ def test_image_import_creates_observation(app_state: AppState, tmp_path: Path, q
 
     app_state.create_project(tmp_path / "proj", "P")
     screen = ImageImportScreen(app_state)
+    screen.species_combo.setCurrentText("Calotriton asper")  # never defaulted now
     qtbot.addWidget(screen)
-    assert screen.species_combo.count() >= 1  # Calotriton asper from the registry
+    assert screen.selected_species() == "Calotriton asper"
 
     source = tmp_path / "newt.png"
     PilImage.fromarray(np.zeros((32, 32, 3), np.uint8)).save(source)
@@ -280,6 +289,7 @@ def test_import_refreshes_other_screens(app_state: AppState, tmp_path: Path, qtb
     observations = ObservationsScreen(app_state)
     candidates = IdentificationScreen(app_state)
     importer = ImageImportScreen(app_state)
+    importer.species_combo.setCurrentText("Calotriton asper")  # never defaulted now
     for widget in (observations, candidates, importer):
         qtbot.addWidget(widget)
 
@@ -322,6 +332,7 @@ def test_import_observer_gating_and_delete(
 
     app_state.create_project(tmp_path / "proj", "P")
     screen = ImageImportScreen(app_state)
+    screen.species_combo.setCurrentText("Calotriton asper")  # never defaulted now
     qtbot.addWidget(screen)
 
     a, b = tmp_path / "a.png", tmp_path / "b.png"
@@ -357,6 +368,143 @@ def test_import_observer_gating_and_delete(
     assert screen.gallery.count() == 0
 
 
+def test_folder_selection_stages_every_image_in_the_subfolders(
+    app_state: AppState, tmp_path: Path, qtbot, monkeypatch
+) -> None:
+    """Selecting one session folder must stage the whole tree under it, not just its top level."""
+    from PIL import Image as PilImage
+    from PySide6.QtWidgets import QFileDialog
+
+    from herpetoid.gui.screens.import_images import ImageImportScreen
+
+    app_state.create_project(tmp_path / "proj", "P")
+    screen = ImageImportScreen(app_state)
+    screen.species_combo.setCurrentText("Calotriton asper")  # never defaulted now
+    qtbot.addWidget(screen)
+
+    session = tmp_path / "2023-07-15 Riu Aigues"
+    images = [
+        session / "top.jpg",
+        session / "CAM1" / "a.jpg",
+        session / "CAM1" / "b.png",
+        session / "CAM2" / "deep" / "c.jpg",
+    ]
+    for path in images:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        PilImage.fromarray(np.zeros((16, 16, 3), np.uint8)).save(path)
+    (session / "CAM1" / "field-notes.txt").write_text("not an image", encoding="utf-8")
+
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *a, **k: str(session))
+    screen._choose_folder()
+
+    assert sorted(screen.staged_files()) == sorted(images)
+    assert screen.staged_list.count() == 4
+    assert "4" in screen.import_button.text()
+    # Selecting the same folder again adds nothing: the strip never grows duplicates.
+    screen._choose_folder()
+    assert len(screen.staged_files()) == 4
+
+
+def test_folder_selection_reports_an_empty_folder(
+    app_state: AppState, tmp_path: Path, qtbot, monkeypatch
+) -> None:
+    from PySide6.QtWidgets import QFileDialog, QMessageBox
+
+    from herpetoid.gui.screens.import_images import ImageImportScreen
+
+    app_state.create_project(tmp_path / "proj", "P")
+    screen = ImageImportScreen(app_state)
+    screen.species_combo.setCurrentText("Calotriton asper")  # never defaulted now
+    qtbot.addWidget(screen)
+
+    empty = tmp_path / "no photos here"
+    (empty / "sub").mkdir(parents=True)
+    (empty / "sub" / "notes.txt").write_text("nothing", encoding="utf-8")
+
+    messages: list[str] = []
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *a, **k: str(empty))
+    monkeypatch.setattr(
+        QMessageBox, "information", lambda _p, _t, text, *a, **k: messages.append(text)
+    )
+    screen._choose_folder()
+
+    assert screen.staged_files() == []
+    assert messages and "no supported image files" in messages[0]
+
+
+def test_import_fills_the_date_from_the_file_name_or_its_folder(
+    app_state: AppState, tmp_path: Path, qtbot
+) -> None:
+    """A date written in the path is read into the observation, so it needn't be typed per photo."""
+    from datetime import date
+
+    from PIL import Image as PilImage
+
+    from herpetoid.gui.screens.import_images import ImageImportScreen
+
+    app_state.create_project(tmp_path / "proj", "P")
+    screen = ImageImportScreen(app_state)
+    screen.species_combo.setCurrentText("Calotriton asper")  # never defaulted now
+    qtbot.addWidget(screen)
+    catalog = app_state.catalog
+    assert catalog is not None
+
+    named = tmp_path / "session" / "IMG_20230715_142530.jpg"  # date in the file name
+    foldered = tmp_path / "15-07-2023 Riu Aigues" / "CAM1" / "DSC_0001.jpg"  # date in a folder
+    undated = tmp_path / "session" / "DSC_0002.jpg"  # nothing to go on
+    for path in (named, foldered, undated):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        PilImage.fromarray(np.zeros((16, 16, 3), np.uint8)).save(path)
+
+    # An untouched card dump: the path says nothing, so the camera's own EXIF answers.
+    from_card = tmp_path / "DCIM" / "100CANON" / "DSC_0031.jpg"
+    from_card.parent.mkdir(parents=True, exist_ok=True)
+    exif = PilImage.Exif()
+    exif.get_ifd(0x8769)[0x9003] = "2023:07:20 14:25:30"  # DateTimeOriginal
+    PilImage.fromarray(np.zeros((16, 16, 3), np.uint8)).save(from_card, "JPEG", exif=exif)
+
+    assert screen.import_files([named, foldered, undated, from_card]) == 4
+    dates = {
+        catalog.images_for(obs.id)[0].original_filename: obs.observed_at
+        for obs in catalog.list_observations()
+        if obs.id is not None
+    }
+    assert dates["IMG_20230715_142530.jpg"].date() == date(2023, 7, 15)
+    assert dates["DSC_0001.jpg"].date() == date(2023, 7, 15)
+    assert dates["DSC_0031.jpg"].date() == date(2023, 7, 20)  # from EXIF
+    assert dates["DSC_0002.jpg"] is None  # never guessed
+
+
+def test_staged_tooltip_shows_the_detected_date_day_first(
+    app_state: AppState, tmp_path: Path, qtbot
+) -> None:
+    from PIL import Image as PilImage
+
+    from herpetoid.gui.screens.import_images import ImageImportScreen
+
+    app_state.create_project(tmp_path / "proj", "P")
+    screen = ImageImportScreen(app_state)
+    screen.species_combo.setCurrentText("Calotriton asper")  # never defaulted now
+    qtbot.addWidget(screen)
+
+    dated = tmp_path / "2023-07-15" / "a.jpg"
+    plain = tmp_path / "b.jpg"
+    for path in (dated, plain):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        PilImage.fromarray(np.zeros((16, 16, 3), np.uint8)).save(path)
+
+    carded = tmp_path / "DCIM" / "DSC_0031.jpg"
+    carded.parent.mkdir(parents=True, exist_ok=True)
+    exif = PilImage.Exif()
+    exif.get_ifd(0x8769)[0x9003] = "2023:07:20 14:25:30"  # DateTimeOriginal
+    PilImage.fromarray(np.zeros((16, 16, 3), np.uint8)).save(carded, "JPEG", exif=exif)
+
+    screen.stage_files([dated, plain, carded])
+    assert "Date from file name/folder: 15/07/2023" in screen.staged_list.item(0).toolTip()
+    assert screen.staged_list.item(1).toolTip() == str(plain)  # no date anywhere: just the path
+    assert "Date from camera (EXIF): 20/07/2023" in screen.staged_list.item(2).toolTip()
+
+
 def test_import_skips_unreadable_files_and_keeps_the_rest(
     app_state: AppState, tmp_path: Path, qtbot, monkeypatch
 ) -> None:
@@ -368,6 +516,7 @@ def test_import_skips_unreadable_files_and_keeps_the_rest(
 
     app_state.create_project(tmp_path / "proj", "P")
     screen = ImageImportScreen(app_state)
+    screen.species_combo.setCurrentText("Calotriton asper")  # never defaulted now
     qtbot.addWidget(screen)
     catalog = app_state.catalog
     assert catalog is not None
@@ -495,13 +644,13 @@ def test_individual_observation_navigation(
     # Two observations -> Next enabled, Prev disabled; position + date shown.
     assert "2 observation" in screen.individual_header.text()
     assert "Observation 1 of 2" in screen.obs_position_label.text()
-    assert "2026-05-10" in screen.obs_position_label.text()
+    assert "10/05/2026" in screen.obs_position_label.text()  # dates read day-first everywhere
     assert not screen.prev_button.isEnabled()
     assert screen.next_button.isEnabled()
 
     screen._step_observation(1)  # arrow to the second observation
     assert "Observation 2 of 2" in screen.obs_position_label.text()
-    assert "2026-05-20" in screen.obs_position_label.text()
+    assert "20/05/2026" in screen.obs_position_label.text()
     assert screen.prev_button.isEnabled()
     assert not screen.next_button.isEnabled()
 
@@ -891,11 +1040,13 @@ def test_new_code_stays_pending_until_confirmed_in_identification(
     assert linked is not None and linked.individual_id == individual.id
     assert pending_code(linked) is None  # pending marker consumed
 
-    # Marking again must NOT mint a duplicate individual.
+    # Marking again must NOT mint a duplicate individual — but it must still read as a decision
+    # taken, not as a dead button: the verdict "not a recapture" keeps the identity it has.
     screen._query_observation_id = obs.id
     screen.mark_new()
     assert catalog.individual_count() == 1
-    assert "Already assigned" in screen.status_label.text()
+    assert "Kept as individual CA-777" in screen.status_label.text()
+    assert "CA-777" in screen.toast.text()  # and it is toasted, not just written to a corner
 
     # A code that matches an existing individual still links directly on save.
     other = catalog.import_observation(species.id, [image])
@@ -1193,8 +1344,9 @@ def test_build_match_composite_dimensions() -> None:
     composite = build_match_composite(left, right, corr)
     assert composite.shape[0] == 50  # both patterns normalized to the tallest height
     assert composite.shape[2] == 3  # RGB
-    # The left pattern is scaled 50/40 = 1.25x to match: width 30 -> 38.
-    assert composite.shape[1] == 38 + 24 + 20  # left + gap + right
+    # The left pattern is scaled 50/40 = 1.25x to match: width 30 -> 38. Both then get a panel of
+    # that same width, so the pair reads as two equal spaces however narrow one pattern is.
+    assert composite.shape[1] == 38 + 24 + 38  # panel + gap + panel
 
 
 def test_build_match_composite_normalizes_orientation_and_size() -> None:
@@ -1206,14 +1358,34 @@ def test_build_match_composite_normalizes_orientation_and_size() -> None:
     corr = np.array([[39, 0, 4, 4]], float)  # top-right corner of the landscape query
     composite = build_match_composite(landscape, portrait, corr)
     assert composite.shape[0] == 50  # rotated left (40 tall) scaled up to the right's 50
-    left_width = round(30 * 50 / 40)  # 38 after the 1.25x scale
-    assert composite.shape[1] == left_width + 24 + 20
+    panel = round(30 * 50 / 40)  # 38 after the 1.25x scale; the wider of the two sets the panel
+    assert composite.shape[1] == panel + 24 + panel
     # The overlay must still land on the canvas: something was drawn (composite differs from plain).
     plain = build_match_composite(landscape, portrait, corr, show_lines=False, show_points=False)
     assert not np.array_equal(plain, composite)
-    # And both sides are fully painted (no untouched background stripe below either pattern).
-    assert not (plain[:, :left_width] == 245).all(axis=2).any()  # left column fully covered
-    assert not (plain[:, left_width + 24 :] == 245).all(axis=2).any()  # right column fully covered
+    # The left pattern fills its panel; the narrower right one is centred in its own, so the
+    # background shows either side of it rather than the pair being butted together.
+    assert not (plain[:, :panel] == 245).all(axis=2).any()  # left panel fully covered
+    right_pad = (panel - 20) // 2
+    right0 = panel + 24 + right_pad
+    assert not (plain[:, right0 : right0 + 20] == 245).all(axis=2).any()  # the pattern itself
+    assert (plain[:, panel + 24 : right0] == 245).all()  # padding, in the given background
+
+
+def test_build_match_composite_paints_the_surrounding_interface_colours() -> None:
+    """The panels sit on the application's own surface, not on a hard-coded slab."""
+    from herpetoid.gui.widgets.match_overlay import build_match_composite
+
+    left = np.zeros((40, 30), np.uint8)
+    right = np.zeros((40, 20), np.uint8)
+    dark = (23, 25, 28)  # the dark theme's base
+    composite = build_match_composite(left, right, None, background=dark, frame=(154, 160, 166))
+
+    gap = composite[:, 30 : 30 + 24]  # between the two panels
+    assert (gap[2:-2] == dark).all()  # ...the background, except where the frames are drawn
+    # Each panel is outlined, so its corner is the frame colour rather than the background.
+    assert tuple(composite[0, 0]) != dark
+    assert tuple(composite[0, 30 + 24]) != dark
 
 
 def test_build_match_composite_overlay_options() -> None:
@@ -1424,3 +1596,410 @@ def test_statistics_screen_exports(app_state: AppState, tmp_path: Path, qtbot) -
     pdf_dest = tmp_path / "out.pdf"
     screen.export_to("pdf", pdf_dest)
     assert pdf_dest.read_bytes()[:4] == b"%PDF"
+
+
+def _import_as(app_state: AppState, tmp_path: Path, species: str, names: list[str], qtbot) -> None:
+    """Import images under a chosen species, through the real import screen."""
+    from PIL import Image as PilImage
+
+    from herpetoid.gui.screens.import_images import ImageImportScreen
+
+    screen = ImageImportScreen(app_state)
+    qtbot.addWidget(screen)
+    screen.species_combo.setCurrentText(species)
+    screen.observer_edit.setText("AL")
+    paths = []
+    for name in names:
+        path = tmp_path / name
+        PilImage.fromarray(np.zeros((16, 16, 3), np.uint8)).save(path)
+        paths.append(path)
+    assert screen.import_files(paths) == len(names)
+
+
+def test_change_species_moves_a_whole_project_and_drops_the_empty_species(
+    app_state: AppState, tmp_path: Path, qtbot
+) -> None:
+    """The reported problem: a session imported under the wrong species, with no way to change it."""
+    app_state.create_project(tmp_path / "proj", "P")
+    _import_as(app_state, tmp_path, "Calotriton asper", ["a.png", "b.png", "c.png"], qtbot)
+    catalog = app_state.catalog
+    assert catalog is not None
+
+    window = MainWindow(app_state)
+    qtbot.addWidget(window)
+    assert "Calotriton asper" in window._species_status.text()  # what the researcher sees, and reports
+
+    dialog = window.open_change_species_dialog()
+    qtbot.addWidget(dialog)
+    assert "Calotriton asper" in dialog.from_combo.currentText()
+    assert "3 observation(s)" in dialog.from_combo.currentText()
+    dialog.to_combo.setCurrentText("Salamandra salamandra")
+    assert dialog.observation_ids() == [o.id for o in catalog.list_observations()]
+    assert "3 observation(s)" in dialog.consequences.text()
+
+    report = dialog.apply_change()
+    assert report is not None and report.observations == 3
+    assert [s.scientific_name for s in catalog.list_species()] == ["Salamandra salamandra"]
+    assert report.species_removed == ("Calotriton asper",)
+    assert "Salamandra salamandra" in window._species_status.text()  # and the project stops lying
+
+
+def test_change_species_from_the_observations_screen_moves_only_that_capture(
+    app_state: AppState, tmp_path: Path, qtbot
+) -> None:
+    from herpetoid.gui.screens.observations import ObservationsScreen
+
+    app_state.create_project(tmp_path / "proj", "P")
+    _import_as(app_state, tmp_path, "Calotriton asper", ["a.png", "b.png"], qtbot)
+    catalog = app_state.catalog
+    assert catalog is not None
+
+    editor = ObservationsScreen(app_state)
+    qtbot.addWidget(editor)
+    first, second = sorted(o.id for o in catalog.list_observations())
+    editor.select_observation(first)
+    assert editor.species_label.text() == "Calotriton asper"  # visible where the mistake is visible
+
+    dialog = editor.open_change_species()
+    qtbot.addWidget(dialog)
+    # Opened from a row, so the narrower scope is offered and preselected.
+    assert dialog.scope_combo.currentData() == "one"
+    assert dialog.observation_ids() == [first]
+    dialog.to_combo.setCurrentText("Salamandra salamandra")
+    report = dialog.apply_change()
+
+    assert report is not None and report.observations == 1
+    by_id = {o.id: o for o in catalog.list_observations()}
+    species = {s.id: s.scientific_name for s in catalog.list_species()}
+    assert species[by_id[first].species_id] == "Salamandra salamandra"
+    assert species[by_id[second].species_id] == "Calotriton asper"  # untouched
+    editor.select_observation(first)
+    assert editor.species_label.text() == "Salamandra salamandra"
+
+
+def test_change_species_warns_about_values_the_destination_does_not_use(
+    app_state: AppState, tmp_path: Path, qtbot
+) -> None:
+    """Moving to a species with fewer fields must say so — the values are kept, just not shown."""
+    app_state.create_project(tmp_path / "proj", "P")
+    _import_as(app_state, tmp_path, "Salamandra salamandra", ["a.png"], qtbot)
+    catalog = app_state.catalog
+    assert catalog is not None
+    observation = catalog.list_observations()[0]
+    assert observation.id is not None
+    observation.measurements = {"svl": 90.0, "total_length": 180.0, "pattern_type": "spotted"}
+    catalog.update_observation(observation)
+
+    window = MainWindow(app_state)
+    qtbot.addWidget(window)
+    dialog = window.open_change_species_dialog()
+    qtbot.addWidget(dialog)
+    dialog.to_combo.setCurrentText("Calotriton asper")
+    text = dialog.consequences.text()
+    assert "Total length" in text and "Dorsal pattern" in text  # by label, not by key
+    assert "SVL" not in text  # a field both species declare carries over untouched
+
+    assert dialog.apply_change() is not None
+    # Kept, not deleted: changing back restores them.
+    moved = catalog.list_observations()[0]
+    assert moved.measurements["total_length"] == 180.0
+    assert moved.measurements["pattern_type"] == "spotted"
+
+
+def test_import_will_not_file_captures_under_a_species_nobody_chose(
+    app_state: AppState, tmp_path: Path, qtbot
+) -> None:
+    """The root cause: the combo used to open on a species the researcher never picked."""
+    from PIL import Image as PilImage
+
+    from herpetoid.gui.screens.import_images import ImageImportScreen
+
+    app_state.create_project(tmp_path / "proj", "P")
+    screen = ImageImportScreen(app_state)
+    qtbot.addWidget(screen)
+    catalog = app_state.catalog
+    assert catalog is not None
+
+    assert screen.selected_species() is None  # a placeholder, not the first installed module
+    source = tmp_path / "a.png"
+    PilImage.fromarray(np.zeros((16, 16, 3), np.uint8)).save(source)
+    screen.observer_edit.setText("AL")
+    screen.stage_files([source])
+    assert not screen.import_button.isEnabled()
+    assert "a species" in screen.add_hint.text()
+    assert screen.import_files([source]) == 0  # and nothing gets in by another route
+    assert catalog.observation_count() == 0
+
+    screen.species_combo.setCurrentText("Salamandra salamandra")
+    assert screen.import_button.isEnabled()
+    assert screen.import_files([source]) == 1
+
+    # Once the project holds exactly one species it has declared itself: the next import screen
+    # opens on it, so repeat imports stay one click.
+    again = ImageImportScreen(app_state)
+    qtbot.addWidget(again)
+    assert again.selected_species() == "Salamandra salamandra"
+
+
+def test_not_a_recapture_keeps_the_identity_of_an_already_cataloged_query(
+    app_state: AppState, tmp_path: Path, qtbot
+) -> None:
+    """Re-assessing cataloged captures (e.g. after a species change) must not be a dead button.
+
+    The query already *is* an individual, so there is nothing new to mint — but the verdict "not a
+    recapture of any candidate" is still a real decision, and it has to visibly land.
+    """
+    from herpetoid.api import ROI
+    from herpetoid.domain import PluginRef
+    from herpetoid.gui.screens.identification import IdentificationScreen
+
+    app_state.create_project(tmp_path / "proj", "P")
+    catalog = app_state.catalog
+    assert catalog is not None
+    species = catalog.ensure_species(
+        "Calotriton asper", module=PluginRef("calotriton_asper", "1.0")
+    )
+    assert species.id is not None
+
+    # Three captures, each already a cataloged individual with a ROI — as after an identified season.
+    ids = []
+    for index in range(3):
+        source = tmp_path / f"{index}.png"
+        _write_image(source)
+        observation = catalog.import_observation(species.id, [source], observer="AL")
+        assert observation.id is not None
+        image = catalog.images_for(observation.id)[0]
+        assert image.id is not None
+        catalog.set_image_roi(image.id, ROI.rectangle(2, 2, 12, 12))
+        individual = catalog.create_individual(species.id, code=f"CA-{index + 1:03d}")
+        assert individual.id is not None
+        catalog.link_observation(observation.id, individual.id)
+        ids.append(observation.id)
+
+    screen = IdentificationScreen(app_state)
+    qtbot.addWidget(screen)
+    screen._query_observation_id = ids[0]
+    screen._update_action_buttons()
+    # The button says what it will do rather than promising a "new" individual it cannot create.
+    assert "keep CA-001" in screen.new_button.text()
+
+    before = catalog.individual_count()
+    screen.mark_new()
+
+    assert catalog.individual_count() == before  # nothing minted, nothing duplicated
+    query = catalog.get_observation(ids[0])
+    assert query is not None
+    kept = catalog.get_individual(query.individual_id or 0)
+    assert kept is not None and kept.code == "CA-001"  # the name the researcher wanted kept
+    assert "Kept as individual CA-001" in screen.status_label.text()
+    assert "CA-001" in screen.toast.text()  # and it is impossible to miss
+
+
+def test_mark_new_button_names_the_pending_code_it_would_create(
+    app_state: AppState, tmp_path: Path, qtbot
+) -> None:
+    from herpetoid.application.catalog_service import PENDING_CODE_KEY
+    from herpetoid.domain import PluginRef
+    from herpetoid.gui.screens.identification import IdentificationScreen
+
+    app_state.create_project(tmp_path / "proj", "P")
+    catalog = app_state.catalog
+    assert catalog is not None
+    species = catalog.ensure_species(
+        "Calotriton asper", module=PluginRef("calotriton_asper", "1.0")
+    )
+    assert species.id is not None
+    source = tmp_path / "a.png"
+    _write_image(source)
+    observation = catalog.import_observation(
+        species.id, [source], measurements={PENDING_CODE_KEY: "CA-042"}
+    )
+    assert observation.id is not None
+
+    screen = IdentificationScreen(app_state)
+    qtbot.addWidget(screen)
+    screen._query_observation_id = observation.id
+    screen._update_action_buttons()
+    assert "CA-042" in screen.new_button.text()  # the code it will actually create
+
+    screen.mark_new()
+    created = catalog.find_individual_by_code(species.id, "CA-042")
+    assert created is not None
+    assert "Created individual CA-042" in screen.status_label.text()
+
+
+def _identifiable_project(app_state, tmp_path: Path, count: int = 3) -> list[int]:
+    """A project of cataloged captures, each with a marked region — ready to identify."""
+    from herpetoid.api import ROI
+    from herpetoid.domain import PluginRef
+
+    app_state.create_project(tmp_path / "proj", "P")
+    catalog = app_state.catalog
+    assert catalog is not None
+    species = catalog.ensure_species(
+        "Calotriton asper", module=PluginRef("calotriton_asper", "1.0")
+    )
+    assert species.id is not None
+    ids: list[int] = []
+    for index in range(count):
+        source = tmp_path / f"{index}.png"
+        _write_image(source, size=48)
+        observation = catalog.import_observation(species.id, [source], observer="AL")
+        assert observation.id is not None
+        image = catalog.images_for(observation.id)[0]
+        assert image.id is not None
+        catalog.set_image_roi(image.id, ROI.rectangle(4, 4, 40, 40))
+        individual = catalog.create_individual(species.id, code=f"CA-{index + 1:03d}")
+        assert individual.id is not None
+        catalog.link_observation(observation.id, individual.id)
+        ids.append(observation.id)
+    return ids
+
+
+def test_identification_advances_to_the_next_capture_after_a_decision(
+    app_state: AppState, tmp_path: Path, qtbot
+) -> None:
+    """Working a season is a single pass: a decision moves on, it does not go back to the top."""
+    from herpetoid.gui.screens.identification import IdentificationScreen
+
+    ids = _identifiable_project(app_state, tmp_path, count=3)
+    catalog = app_state.catalog
+    assert catalog is not None
+    screen = IdentificationScreen(app_state)
+    qtbot.addWidget(screen)
+
+    screen.query_combo.setCurrentIndex(screen.query_combo.findData(ids[0]))
+    screen.identify()
+    assert screen.query_combo.currentData() == ids[0]
+
+    screen.mark_new()  # "not a recapture" — it is already CA-001
+    assert screen.query_combo.currentData() == ids[1]  # ...and we are on the next one
+    assert "Next: CA-002" in screen.status_label.text()
+
+    # The ranking on screen belonged to the previous query: it must not linger and invite a
+    # decision about the wrong pair.
+    assert screen._candidates == []
+    assert screen._query_observation_id is None
+
+    screen.identify()
+    screen.mark_new()
+    assert screen.query_combo.currentData() == ids[2]
+
+    # The last one to assess: there is nowhere further to go, and it says so.
+    screen.identify()
+    screen.mark_new()
+    assert len(catalog.identified_observation_ids()) == 3
+    assert "Every capture" in screen.toast.text()
+
+
+def test_the_query_selection_survives_an_unrelated_refresh(
+    app_state: AppState, tmp_path: Path, qtbot
+) -> None:
+    """A save elsewhere in the app must not throw the reviewer back to the first capture."""
+    from herpetoid.gui.screens.identification import IdentificationScreen
+
+    ids = _identifiable_project(app_state, tmp_path, count=3)
+    screen = IdentificationScreen(app_state)
+    qtbot.addWidget(screen)
+
+    screen.query_combo.setCurrentIndex(screen.query_combo.findData(ids[2]))
+    app_state.project_changed.emit()  # e.g. an observation saved on another tab
+    assert screen.query_combo.currentData() == ids[2]
+
+
+def test_the_comparison_names_each_pattern_and_pops_out_both_photographs(
+    app_state: AppState, tmp_path: Path, qtbot
+) -> None:
+    """Which side is the query and which the possible recapture, and the frames they came from."""
+    from herpetoid.gui.screens.identification import IdentificationScreen
+
+    ids = _identifiable_project(app_state, tmp_path, count=2)
+    screen = IdentificationScreen(app_state)
+    qtbot.addWidget(screen)
+    screen.query_combo.setCurrentIndex(screen.query_combo.findData(ids[0]))
+    screen.identify()
+    assert screen._candidates, "no candidate to compare against"
+
+    pair = screen.overlay.pair()
+    assert pair is not None
+    assert pair[0].title == "Query · CA-001"
+    assert pair[1].title == "Candidate · CA-002"
+    assert pair[0].image is not None and pair[1].image is not None  # the whole photographs
+
+    for side, expected in ((0, "Query · CA-001"), (1, "Candidate · CA-002")):
+        window = screen.overlay.show_full_image(side)
+        assert window is not None
+        qtbot.addWidget(window)
+        assert window.windowTitle() == expected
+        assert window.viewer.has_image()
+        window.close()
+
+
+def test_the_roi_preview_pops_out_the_photograph_it_was_cropped_from(
+    app_state: AppState, tmp_path: Path, qtbot
+) -> None:
+    from herpetoid.gui.screens.identification import IdentificationScreen
+
+    ids = _identifiable_project(app_state, tmp_path, count=2)
+    screen = IdentificationScreen(app_state)
+    qtbot.addWidget(screen)
+    screen.query_combo.setCurrentIndex(screen.query_combo.findData(ids[0]))
+    screen.identify()
+
+    preview = screen.query_panel.roi
+    assert preview.has_full_image()
+    window = preview.show_full_image()
+    assert window is not None
+    qtbot.addWidget(window)
+    assert window.windowTitle() == "CA-001 · Observation 1"
+    assert window.viewer.has_image()
+    window.close()
+
+    preview.clear_preview()
+    assert not preview.has_full_image()
+    assert preview.show_full_image() is None  # nothing to show, and no crash
+
+
+def test_roi_outline_marks_the_region_without_touching_the_rest() -> None:
+    from herpetoid.api import ROI
+    from herpetoid.gui.widgets.full_image import with_roi_outline
+
+    image = np.zeros((80, 80, 3), np.uint8)
+    outlined = with_roi_outline(image, ROI.rectangle(20, 20, 40, 40))
+    assert outlined.shape == image.shape
+    assert outlined.any()  # the outline was drawn
+    assert not outlined[0:5, 0:5].any()  # ...and only where the region is
+    assert np.array_equal(with_roi_outline(image, None), image)  # no ROI: the frame, untouched
+
+
+def test_match_captions_are_styled_widgets_under_each_panel(qtbot) -> None:
+    """The names are interface chips, not pixels burnt into the picture."""
+    import numpy as np
+
+    from herpetoid.gui.widgets.match_overlay import MatchOverlayViewer, SourceImage
+
+    overlay = MatchOverlayViewer()
+    qtbot.addWidget(overlay)
+    assert not overlay._caption_row.isVisibleTo(overlay)  # nothing to name yet
+
+    photo = np.zeros((20, 20, 3), np.uint8)
+    overlay.set_pair(SourceImage("Query · CA-001", photo), SourceImage("Candidate · CA-002", photo))
+    assert overlay.left_caption.text() == "Query · CA-001"
+    assert overlay.right_caption.text() == "Candidate · CA-002"
+    assert overlay._caption_row.isVisibleTo(overlay)
+    # Styled by the theme as the Mode switch's cells are, and centred in its own cell.
+    assert overlay.left_caption.objectName() == "matchCaption"
+    assert overlay.left_caption.alignment() & Qt.AlignmentFlag.AlignCenter
+
+    overlay.clear()
+    assert not overlay._caption_row.isVisibleTo(overlay)
+
+
+def test_the_theme_styles_the_match_captions_like_the_mode_switch() -> None:
+    from herpetoid.gui.theme import STYLES, _stylesheet
+
+    for style in STYLES:
+        for mode in ("light", "dark"):
+            sheet = _stylesheet(style, mode)
+            assert "QLabel#matchCaption" in sheet
+            assert "QPushButton#modeSwitch" in sheet  # the cell it is meant to match

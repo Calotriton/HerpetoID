@@ -17,6 +17,7 @@ from herpetoid.api import (
     ModuleDescriptor,
     SpeciesModule,
 )
+from herpetoid.domain import PluginRef
 
 
 class PluginConflictError(Exception):
@@ -106,6 +107,21 @@ class PluginRegistry:
 
     def algorithm(self, algorithm_id: str) -> RegisteredAlgorithm | None:
         return self._algorithms.get(algorithm_id)
+
+    def species_offered(self) -> dict[str, PluginRef]:
+        """Every species an enabled module handles, mapped to the module that handles it.
+
+        Where two modules claim the same species the first by module id wins, matching what the
+        import screen offers — so the species a user can pick and the module that will interpret it
+        are decided in exactly one place.
+        """
+        offered: dict[str, PluginRef] = {}
+        for record in self.modules(enabled_only=True):
+            for name in record.descriptor.supported_species:
+                offered.setdefault(
+                    name, PluginRef(record.descriptor.module_id, record.descriptor.version)
+                )
+        return offered
 
     def modules_for_species(self, scientific_name: str) -> list[RegisteredModule]:
         return [

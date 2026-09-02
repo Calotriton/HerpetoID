@@ -405,6 +405,15 @@ def _stylesheet(style: ThemeStyle, mode: str) -> str:
         color: {accent};
         border: 1px solid {accent};
     }}
+    /* The captions under the two match panels: the Mode switch's cell, as a label. */
+    QLabel#matchCaption {{
+        background: transparent;
+        color: {c["text"]};
+        border: 1px solid {c["border"]};
+        border-radius: 13px;
+        padding: 4px 12px;
+        font-weight: 600;
+    }}
     QPushButton#accentOutline {{
         background: transparent;
         color: {accent};

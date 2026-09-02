@@ -1,30 +1,46 @@
 """Match-evidence rendering shared by the identification views.
 
-``build_match_composite`` lays two normalized patterns side by side with the matched spots joined by
-colored lines. :class:`MatchOverlayViewer` wraps that composite in a self-contained widget: a result
+``build_match_composite`` lays two normalized patterns side by side -- each in its own panel,
+on the surrounding background -- with the matched spots joined by colored lines. :class:`MatchOverlayViewer` wraps that composite in a self-contained widget: a result
 panel (similarity % + verdict), the overlay controls (hide lines/points, limit N, opacity) and the
 image viewer, re-rendering overlay tweaks without re-running the match and preserving the zoom.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, QPoint, Qt
+from PySide6.QtGui import QAction, QPalette
 from PySide6.QtWidgets import (
     QCheckBox,
     QFrame,
     QHBoxLayout,
     QLabel,
+    QMenu,
     QSlider,
     QSpinBox,
     QVBoxLayout,
     QWidget,
 )
 
+from herpetoid.api import ROI
 from herpetoid.application.identification_runner import PairwiseComparison
 from herpetoid.gui.widgets.image_viewer import ImageViewer
 
-_GAP = 24  # pixels between the two patterns in the composite
+_GAP = 24  # pixels between the two panels in the composite
+#: Fallback panel background when no palette colour is given (a plain light surface).
+_BACKGROUND = (245, 245, 245)
+
+
+@dataclass(eq=False, slots=True)
+class SourceImage:
+    """One side of a comparison: what it is called, and the photograph it was derived from."""
+
+    title: str
+    image: np.ndarray | None = None
+    roi: ROI | None = None
 
 
 def _to_rgb_u8(image: np.ndarray) -> np.ndarray:
@@ -53,6 +69,8 @@ def build_match_composite(
     show_points: bool = True,
     max_matches: int | None = None,
     opacity: float = 1.0,
+    background: tuple[int, int, int] = _BACKGROUND,
+    frame: tuple[int, int, int] | None = None,
 ) -> np.ndarray:
     """Lay the two patterns side by side — both upright and at the same height — and draw the matches.
 
@@ -61,6 +79,11 @@ def build_match_composite(
     same rotation/scale. ``max_matches`` limits how many correspondences are drawn, ``opacity`` (0-1)
     fades the overlay so the patterns stay visible underneath, and ``show_lines`` / ``show_points``
     toggle each layer.
+
+    Each pattern gets a **panel of its own**, both the same width, centred, painted on
+    ``background`` and outlined in ``frame`` -- so the pair reads as two separate spaces on the
+    application's own surface rather than two pictures butted together in a slab. Pass the
+    surrounding widget's palette colours and the composite disappears into the interface.
     """
     import cv2
 
@@ -83,10 +106,19 @@ def build_match_composite(
     if right_scale != 1.0:
         right = cv2.resize(right, (max(1, round(right.shape[1] * right_scale)), height))
     wl, wr = left.shape[1], right.shape[1]
-    base = np.full((height, wl + _GAP + wr, 3), 245, np.uint8)
-    base[:, :wl] = left
-    offset = wl + _GAP
-    base[:, offset : offset + wr] = right
+    # One panel width for both, each pattern centred in its own: a narrow pattern beside a
+    # wide one still reads as an equal pair, and the two captions below line up with them.
+    panel = max(wl, wr)
+    left_pad, right_pad = (panel - wl) // 2, (panel - wr) // 2
+    offset = panel + _GAP
+    base = np.full((height, 2 * panel + _GAP, 3), background, np.uint8)
+    base[:, left_pad : left_pad + wl] = left
+    base[:, offset + right_pad : offset + right_pad + wr] = right
+    if frame is not None:
+        for x0 in (0, offset):
+            # Not antialiased: a 1px axis-aligned rule only blurs, and the bleed would smear
+            # the panel edge into the background between them.
+            cv2.rectangle(base, (x0, 0), (x0 + panel - 1, height - 1), frame, 1)
 
     has_matches = correspondences is not None and len(correspondences) > 0
     if not has_matches or opacity <= 0 or not (show_lines or show_points):
@@ -107,7 +139,15 @@ def build_match_composite(
     if right_rotated:
         tx, ty = right_pre_height - 1 - ty, tx
     points = np.rint(
-        np.stack([qx * left_scale, qy * left_scale, tx * right_scale, ty * right_scale], axis=1)
+        np.stack(
+            [
+                qx * left_scale + left_pad,
+                qy * left_scale,
+                tx * right_scale + right_pad,
+                ty * right_scale,
+            ],
+            axis=1,
+        )
     ).astype(int)
     count = len(points)
 
@@ -141,6 +181,8 @@ class MatchOverlayViewer(QWidget):
         super().__init__()
         self._comparison: PairwiseComparison | None = None
         self._composite_shape: tuple[int, ...] | None = None
+        self._pair: tuple[SourceImage, SourceImage] | None = None
+        self._window: QWidget | None = None  # kept alive; a local would be garbage-collected
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -148,7 +190,33 @@ class MatchOverlayViewer(QWidget):
         layout.addWidget(self._build_result_panel())
         layout.addWidget(self._build_overlay_controls())
         self.viewer = ImageViewer()
+        self.viewer.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.viewer.customContextMenuRequested.connect(self._show_context_menu)
         layout.addWidget(self.viewer, 1)
+        layout.addWidget(self._build_caption_row())
+
+    def _build_caption_row(self) -> QWidget:
+        """Two chips naming the panels above them, matching the Mode switch's cells."""
+        self._caption_row = QWidget()
+        row = QHBoxLayout(self._caption_row)
+        row.setContentsMargins(0, 0, 0, 2)
+        row.setSpacing(_GAP)  # the same gap the composite leaves between its panels
+        self.left_caption = QLabel()
+        self.right_caption = QLabel()
+        for caption in (self.left_caption, self.right_caption):
+            caption.setObjectName("matchCaption")
+            caption.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            # Each chip hugs its own text and is centred in an equal half, so it sits under the
+            # middle of its panel and reads like the Mode switch's cells rather than a wide bar.
+            half = QWidget()
+            half_layout = QHBoxLayout(half)
+            half_layout.setContentsMargins(0, 0, 0, 0)
+            half_layout.addStretch(1)
+            half_layout.addWidget(caption)
+            half_layout.addStretch(1)
+            row.addWidget(half, 1)
+        self._caption_row.setVisible(False)
+        return self._caption_row
 
     # -- construction helpers --------------------------------------------------------------------
     def _build_result_panel(self) -> QWidget:
@@ -223,7 +291,50 @@ class MatchOverlayViewer(QWidget):
         self._set_overlay_controls_enabled(False)
         return row
 
-    # -- public API --------------------------------------------------------------------------------
+    # -- public API ------------------------------------------------------------------------
+    def set_pair(self, left: SourceImage | None, right: SourceImage | None) -> None:
+        """Name the two sides and remember the photographs they came from.
+
+        The names go in the chips under their panels; the photographs back the right-click
+        "Show full image". Call before :meth:`show_comparison`; ``None`` drops both.
+        """
+        self._pair = (left, right) if left is not None and right is not None else None
+        self.left_caption.setText(left.title if left is not None else "")
+        self.right_caption.setText(right.title if right is not None else "")
+        self._caption_row.setVisible(self._pair is not None)
+        if self._comparison is not None:
+            self._render_composite()
+
+    def pair(self) -> tuple[SourceImage, SourceImage] | None:
+        return self._pair
+
+    def show_full_image(self, side: int) -> QWidget | None:
+        """Open the whole photograph behind side 0 (left) or 1 (right) of the composite."""
+        from herpetoid.gui.widgets.full_image import FullImageWindow
+
+        if self._pair is None:
+            return None
+        source = self._pair[side]
+        if source.image is None:
+            return None
+        window = FullImageWindow(source.image, roi=source.roi, title=source.title, parent=self)
+        self._window = window
+        window.show()
+        return window
+
+    def _show_context_menu(self, position: QPoint) -> None:
+        if self._pair is None:
+            return
+        menu = QMenu(self)
+        for side, source in enumerate(self._pair):
+            if source.image is None:
+                continue
+            action = QAction(f"Show full image — {source.title}", menu)
+            action.triggered.connect(lambda _checked=False, s=side: self.show_full_image(s))
+            menu.addAction(action)
+        if menu.actions():
+            menu.exec(self.viewer.mapToGlobal(position))
+
     def show_comparison(self, comparison: PairwiseComparison) -> None:
         self._comparison = comparison
         self._composite_shape = None
@@ -239,6 +350,8 @@ class MatchOverlayViewer(QWidget):
     def clear(self) -> None:
         self._comparison = None
         self._composite_shape = None
+        self._pair = None
+        self._caption_row.setVisible(False)
         self.viewer.clear()
         self.score_label.setText("—")
         self.score_label.setStyleSheet("font-size: 34px; font-weight: 800;")
@@ -270,6 +383,8 @@ class MatchOverlayViewer(QWidget):
             show_points=self.points_check.isChecked(),
             max_matches=self.count_spin.value(),
             opacity=self.opacity_slider.value() / 100.0,
+            background=self._palette_rgb(QPalette.ColorRole.Base),
+            frame=self._palette_rgb(QPalette.ColorRole.Mid),
         )
         # Preserve the user's zoom/rotation across overlay tweaks (the composite size is unchanged).
         keep = self.viewer.has_image() and self._composite_shape == composite.shape
@@ -296,6 +411,18 @@ class MatchOverlayViewer(QWidget):
         self.detail_label.setText(
             f"{result.inliers} inlier matches of {good} good\ninlier ratio {result.inlier_ratio:.2f}"
         )
+
+    def _palette_rgb(self, role: QPalette.ColorRole) -> tuple[int, int, int]:
+        """A palette colour as RGB, so the composite is painted in the interface's own colours."""
+        color = self.viewer.palette().color(role)
+        return (color.red(), color.green(), color.blue())
+
+    def changeEvent(self, event: QEvent) -> None:
+        """Repaint the composite when the theme changes: its background is a palette colour."""
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.PaletteChange and self._comparison is not None:
+            self._composite_shape = None  # force a refit rather than keeping a stale transform
+            self._render_composite()
 
     def _set_overlay_controls_enabled(self, enabled: bool) -> None:
         for widget in self._overlay_controls:

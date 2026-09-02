@@ -100,7 +100,9 @@ def test_full_photo_id_workflow(tmp_path: Path, qtbot) -> None:
         _save(tmp_path / filename, gray)
     importer = window.open_dialog("Import")
     assert isinstance(importer, ImageImportScreen)
-    assert importer.species_combo.count() >= 1  # Calotriton asper from the registry
+    # Nothing is preselected in a fresh project: a species has to be chosen, as a user must.
+    assert importer.selected_species() is None
+    importer.species_combo.setCurrentText("Calotriton asper")
     assert importer.import_files([tmp_path / name for name in files]) == 3
     assert catalog.observation_count() == 3
     dock_root = window._dock.tree.topLevelItem(0)
@@ -435,3 +437,220 @@ def test_fire_salamander_workflow(tmp_path: Path, qtbot) -> None:
         np.mean([1e5 * weight / svl**3 for svl, weight in ((92.0, 31.0), (95.0, 34.0), (78.0, 19.0))])
     )
     assert float(rows["Mean body condition (Fulton's K)"]) == pytest.approx(expected_k, abs=0.005)
+
+
+def test_folder_import_fills_dates_across_screens(tmp_path: Path, qtbot, monkeypatch) -> None:
+    """A season's folder tree goes in as one selection, and each capture keeps the date its path states.
+
+    This is the whole point of the two features together: the researcher picks the session folder
+    once, and the Date cell they would otherwise fill in by hand — for every photograph — is already
+    right, written day-first, and survives a save.
+    """
+    from datetime import date
+
+    from PySide6.QtWidgets import QFileDialog, QMessageBox
+
+    registry = PluginRegistry()
+    discover_entry_points(registry)
+    settings = SettingsService(JsonSettingsStore(tmp_path / "settings.json"))
+    state = AppState(
+        registry=registry, project_service=ProjectService(app_version="e2e"), settings=settings
+    )
+    window = MainWindow(state)
+    qtbot.addWidget(window)
+    state.create_project(tmp_path / "proj", "Season 2023")
+    catalog = state.catalog
+    assert catalog is not None
+
+    # 1) A realistic card dump: one dated session folder, a camera subfolder per device, and a file
+    #    whose own name carries a different (later) date than the folder it sits in.
+    session = tmp_path / "field" / "2023-07-15 Riu Aigues"
+    photos = {
+        session / "CAM1" / "DSC_0001.png": date(2023, 7, 15),  # date from the session folder
+        session / "CAM1" / "deep" / "DSC_0002.png": date(2023, 7, 15),  # ...however deep it sits
+        session / "CAM2" / "IMG_20230716_0031.png": date(2023, 7, 16),  # the file name wins
+    }
+    for index, path in enumerate(photos):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _save(path, _spots(index + 1))
+    # ...plus one straight off the card, in a folder that states nothing: only its EXIF knows.
+    from_card = tmp_path / "field" / "DCIM" / "100CANON" / "DSC_0099.jpg"
+    from_card.parent.mkdir(parents=True, exist_ok=True)
+    exif = PilImage.Exif()
+    exif.get_ifd(0x8769)[0x9003] = "2023:07:17 22:10:04"  # DateTimeOriginal
+    PilImage.fromarray(np.stack([_spots(4)] * 3, axis=-1)).save(from_card, "JPEG", exif=exif)
+    (session / "CAM1" / "field-notes.txt").write_text("not a photograph", encoding="utf-8")
+    (tmp_path / "field" / "elsewhere.png").parent.mkdir(parents=True, exist_ok=True)
+    _save(tmp_path / "field" / "elsewhere.png", _spots(9))  # outside the chosen folder
+
+    # 2) Select the session folder once — every image below it is staged, nothing else is.
+    importer = window.open_dialog("Import")
+    assert isinstance(importer, ImageImportScreen)
+    importer.species_combo.setCurrentText("Calotriton asper")
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *a, **k: str(session))
+    importer._choose_folder()
+    assert sorted(importer.staged_files()) == sorted(photos)
+
+    # The card folder is a second selection; both trees end up in the one staging strip.
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *a, **k: str(from_card.parent))
+    importer._choose_folder()
+    photos[from_card] = date(2023, 7, 17)
+    assert sorted(importer.staged_files()) == sorted(photos)
+
+    importer.observer_edit.setText("AL")
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: None)
+    importer._import_staged()
+    assert catalog.observation_count() == 4
+    assert importer.staged_files() == []
+
+    # 3) Every observation arrived with the date its path stated.
+    by_filename = {
+        catalog.images_for(obs.id)[0].original_filename: obs
+        for obs in catalog.list_observations()
+        if obs.id is not None
+    }
+    for path, expected in photos.items():
+        observation = by_filename[path.name]
+        assert observation.observed_at is not None, f"{path.name} imported without a date"
+        assert observation.observed_at.date() == expected
+
+    # 4) The Observations tab shows it day-first, in the cell the researcher would have typed into.
+    editor = window.find_screen(ObservationsScreen)
+    assert isinstance(editor, ObservationsScreen)
+    assert editor.date_edit.displayFormat() == "dd/MM/yyyy"
+    later = by_filename["IMG_20230716_0031.png"]
+    assert later.id is not None
+    editor.select_observation(later.id)
+    assert editor.date_edit.date().toString("dd/MM/yyyy") == "16/07/2023"
+
+    # 5) Saving the observation keeps that date — it is not quietly replaced with today's.
+    editor.code_edit.setText("CA-101")
+    editor.viewer.set_roi(ROI.rectangle(10, 10, 236, 236))
+    editor.save()
+    reloaded = catalog.get_observation(later.id)
+    assert reloaded is not None and reloaded.observed_at is not None
+    assert reloaded.observed_at.date() == date(2023, 7, 16)
+
+    # 6) ...and once the capture belongs to an individual, the catalog browser writes it the same way.
+    individual = catalog.create_individual(reloaded.species_id, code="CA-101")
+    assert individual.id is not None
+    catalog.link_observation(later.id, individual.id)
+    state.project_changed.emit()
+    browser = window.find_screen(IndividualBrowserScreen)
+    assert isinstance(browser, IndividualBrowserScreen)
+    browser.table.selectRow(0)
+    assert "16/07/2023" in browser.obs_position_label.text()
+
+
+def test_a_project_imported_under_the_wrong_species_is_corrected_in_place(
+    tmp_path: Path, qtbot
+) -> None:
+    """Fire salamanders filed as brook newts, caught mid-project and corrected without re-importing.
+
+    This is the whole answer to "does the species matter?": the module decides which fields exist,
+    how the pattern is read and what a capture is compared against. So the correction has to carry
+    the photographs, the marked regions and the recorded values across intact — and leave a project
+    that identifies correctly under the right module.
+    """
+    cv2.setRNGSeed(17)
+    registry = PluginRegistry()
+    discover_entry_points(registry)
+    settings = SettingsService(JsonSettingsStore(tmp_path / "settings.json"))
+    state = AppState(
+        registry=registry, project_service=ProjectService(app_version="e2e"), settings=settings
+    )
+    window = MainWindow(state)
+    qtbot.addWidget(window)
+    state.create_project(tmp_path / "proj", "Wrong species")
+    catalog = state.catalog
+    assert catalog is not None
+
+    # 1) The mistake: fire salamanders imported as Calotriton asper.
+    base = _fire_salamander(5)
+    files = {
+        "SS-base.png": base,
+        "SS-recapture.png": _rephotographed(base),
+        "SS-other.png": _fire_salamander(88),
+    }
+    for filename, picture in files.items():
+        PilImage.fromarray(picture).save(tmp_path / filename)
+    importer = window.open_dialog("Import")
+    assert isinstance(importer, ImageImportScreen)
+    importer.species_combo.setCurrentText("Calotriton asper")
+    importer.observer_edit.setText("AL")
+    assert importer.import_files([tmp_path / name for name in files]) == 3
+    assert "Calotriton asper" in window._species_status.text()
+
+    # 2) It shows: the editor offers the newt's fields, and the newt's guidance.
+    editor = window.find_screen(ObservationsScreen)
+    assert isinstance(editor, ObservationsScreen)
+    ids = sorted(o.id for o in catalog.list_observations() if o.id is not None)
+    editor.select_observation(ids[0])
+    assert editor.species_label.text() == "Calotriton asper"
+    assert editor._form is not None
+    assert "pattern_type" not in editor._form.values()  # a fire salamander field, absent
+    assert "ventral" in editor.guidance_label.text()
+
+    # 3) Work already done under the wrong species must survive the correction: marked regions,
+    #    measurements, and the individual codes typed in but not yet confirmed.
+    codes = dict(zip(ids, ("SS-001", "SS-002", "SS-003"), strict=True))
+    for observation_id in ids:
+        editor.select_observation(observation_id)
+        editor.viewer.set_roi(ROI(kind=ROIKind.POLYGON, points=_DORSUM))
+        editor.observer_edit.setText("AL")
+        editor.code_edit.setText(codes[observation_id])
+        assert editor._form is not None
+        editor._form.set_values({"svl": 91.0, "weight": 30.0})
+        editor.save()
+    assert len(catalog.comparable_observations()) == 3
+
+    # 4) The fix, from the Observations tab — where the wrong species is on screen.
+    dialog = editor.open_change_species()
+    qtbot.addWidget(dialog)
+    dialog.to_combo.setCurrentText("Salamandra salamandra")
+    dialog.scope_combo.setCurrentIndex(dialog.scope_combo.findData("all"))
+    assert dialog.observation_ids() == ids
+    report = dialog.apply_change()
+    assert report is not None and report.observations == 3
+
+    # 5) The project stops claiming a species it no longer holds, and the editor follows.
+    assert [s.scientific_name for s in catalog.list_species()] == ["Salamandra salamandra"]
+    assert "Salamandra salamandra" in window._species_status.text()
+    editor.select_observation(ids[0])
+    assert editor.species_label.text() == "Salamandra salamandra"
+    assert editor._form is not None
+    assert {"pattern_type", "total_length"} <= editor._form.values().keys()  # its own fields now
+    assert "dorsal" in editor.guidance_label.text()  # ...and its own ROI guidance
+    assert editor._form.values()["svl"] == 91.0  # what was measured carries over
+    assert len(catalog.comparable_observations()) == 3  # every marked region survived
+    moved = {o.id: o for o in catalog.list_observations()}
+    assert {pending_code(moved[i]) for i in ids} == set(codes.values())  # codes came too
+
+    # 6) The corrected project identifies under the right module: enrol two, query the third, and
+    #    the re-photographed animal must outrank the different one.
+    identification = window.find_screen(IdentificationScreen)
+    assert isinstance(identification, IdentificationScreen)
+    identification.algorithm_combo.setCurrentIndex(identification.algorithm_combo.findData("orb"))
+    by_name = {
+        catalog.images_for(o.id)[0].original_filename: o.id
+        for o in catalog.list_observations()
+        if o.id is not None
+    }
+    for filename in ("SS-recapture.png", "SS-other.png"):
+        index = identification.query_combo.findData(by_name[filename])
+        assert index >= 0, f"{filename} is not selectable as a query (combo not refreshed?)"
+        identification.query_combo.setCurrentIndex(index)
+        identification.identify()
+        if identification._first_mark_button is not None:
+            identification._first_mark_button.click()
+        else:
+            identification.mark_new()
+    assert catalog.individual_count() == 2, "enrolling the two catalog animals did not create them"
+    identification.query_combo.setCurrentIndex(
+        identification.query_combo.findData(by_name["SS-base.png"])
+    )
+    identification.identify()
+    assert identification._candidates, "identification returned no candidates after the move"
+    assert identification._candidates[0].observation.id == by_name["SS-recapture.png"]
+    # The codes typed before the correction became the real individuals after it.
+    assert {i.code for i in catalog.list_individuals()} == {"SS-002", "SS-003"}

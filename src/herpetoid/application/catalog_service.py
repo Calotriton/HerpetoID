@@ -6,7 +6,9 @@ calls (e.g. "import these image files as observations of this species").
 
 from __future__ import annotations
 
+from collections import defaultdict
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
@@ -36,6 +38,20 @@ def pending_code(observation: Observation) -> str | None:
 def is_saved(observation: Observation) -> bool:
     """True once the user has explicitly saved this observation in the editor."""
     return bool(observation.measurements.get(SAVED_KEY))
+
+
+@dataclass(frozen=True, slots=True)
+class SpeciesReassignment:
+    """What a species change actually did, so the interface can report it rather than guess."""
+
+    #: How many observations were moved.
+    observations: int = 0
+    #: Codes of individuals that moved across with all of their captures, identity intact.
+    individuals_moved: tuple[str, ...] = ()
+    #: Observations detached from an individual that stayed behind (their code is kept pending).
+    observations_unlinked: tuple[int, ...] = ()
+    #: Species removed because the move left them holding nothing.
+    species_removed: tuple[str, ...] = ()
 
 
 class CatalogService:
@@ -243,6 +259,97 @@ class CatalogService:
 
         with self._project.database.session() as session:
             ObservationRepository(session).link_to_individual(observation_id, individual_id)
+
+    def reassign_species(
+        self, observation_ids: Sequence[int], target_species_id: int
+    ) -> SpeciesReassignment:
+        """Move observations to another species — the fix for a batch imported under the wrong one.
+
+        Photographs, regions of interest and every recorded value are kept: only which species module
+        interprets them changes. Values the new species does not declare stay in the database but stop
+        being shown, so changing back restores them.
+
+        Individuals are the one thing that cannot simply follow, because an individual belongs to a
+        species and its code is unique within one. So: an individual **all** of whose captures are
+        moving comes across with them, code and identity intact. Otherwise the moving captures are
+        detached from it — the individual keeps the captures that stay — and each detached capture
+        keeps the code as a *pending* one, to be re-confirmed on the Identification tab rather than
+        silently lost. The same applies when the code is already taken in the target species.
+
+        A source species left holding no observations and no individuals is removed, so a project
+        stops naming a species it no longer contains.
+        """
+        from herpetoid.infrastructure.db.repositories import (
+            IndividualRepository,
+            ObservationRepository,
+            SpeciesRepository,
+        )
+
+        moving = {int(identifier) for identifier in observation_ids}
+        with self._project.database.session() as session:
+            observations = ObservationRepository(session)
+            individuals = IndividualRepository(session)
+            species = SpeciesRepository(session)
+
+            if species.get(target_species_id) is None:
+                raise KeyError(f"no species with id {target_species_id}")
+            loaded = [
+                observation
+                for observation in (observations.get(identifier) for identifier in sorted(moving))
+                if observation is not None and observation.species_id != target_species_id
+            ]
+            if not loaded:
+                return SpeciesReassignment()
+            source_ids = {observation.species_id for observation in loaded}
+
+            moved_codes: list[str] = []
+            unlinked: list[int] = []
+            by_individual: dict[int, list[Observation]] = defaultdict(list)
+            for observation in loaded:
+                if observation.individual_id is not None:
+                    by_individual[observation.individual_id].append(observation)
+
+            for individual_id, group in by_individual.items():
+                individual = individuals.get(individual_id)
+                if individual is None:
+                    continue
+                captures = {
+                    observation.id for observation in observations.list_for_individual(individual_id)
+                }
+                code_taken = individuals.get_by_code(target_species_id, individual.code) is not None
+                if captures <= moving and not code_taken:
+                    individuals.set_species(individual_id, target_species_id)
+                    moved_codes.append(individual.code)
+                    continue
+                for observation in group:
+                    assert observation.id is not None
+                    observation.individual_id = None
+                    observation.measurements[PENDING_CODE_KEY] = individual.code
+                    observations.update(observation)
+                    unlinked.append(observation.id)
+
+            for observation in loaded:
+                assert observation.id is not None
+                observations.set_species(observation.id, target_species_id)
+            session.flush()
+
+            removed: list[str] = []
+            for species_id in sorted(source_ids):
+                if observations.list_for_species(species_id) or individuals.list_for_species(
+                    species_id
+                ):
+                    continue
+                emptied = species.get(species_id)
+                species.delete(species_id)
+                if emptied is not None:
+                    removed.append(emptied.scientific_name)
+
+            return SpeciesReassignment(
+                observations=len(loaded),
+                individuals_moved=tuple(sorted(moved_codes)),
+                observations_unlinked=tuple(sorted(unlinked)),
+                species_removed=tuple(removed),
+            )
 
     def update_observation(self, observation: Observation) -> None:
         from herpetoid.infrastructure.db.repositories import ObservationRepository

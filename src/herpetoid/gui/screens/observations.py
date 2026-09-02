@@ -37,6 +37,8 @@ from herpetoid.application.catalog_service import (
     pending_code,
 )
 from herpetoid.domain import Image, Location, Observation
+from herpetoid.gui.dialogs import ChangeSpeciesDialog
+from herpetoid.gui.formatting import DATE_DISPLAY_FORMAT
 from herpetoid.gui.state import AppState
 from herpetoid.gui.theme import section_label
 from herpetoid.gui.widgets.dynamic_form import DynamicForm
@@ -174,6 +176,21 @@ class ObservationsScreen(QWidget):
         universal = QWidget()
         universal_form = QFormLayout(universal)
         universal_form.setContentsMargins(0, 0, 0, 0)
+        species_row = QHBoxLayout()
+        species_row.setContentsMargins(0, 0, 0, 0)
+        self.species_label = QLabel("—")
+        self.species_label.setToolTip(
+            "The species module interpreting this capture: its measurement fields, how its "
+            "pattern is read, and which captures it is compared against."
+        )
+        species_row.addWidget(self.species_label, 1)
+        self.change_species_button = QPushButton("Change…")
+        self.change_species_button.setToolTip(
+            "Move this capture — or every capture of this species — to a different species"
+        )
+        self.change_species_button.clicked.connect(self.open_change_species)
+        species_row.addWidget(self.change_species_button)
+        universal_form.addRow("Species", species_row)
         self.code_edit = QLineEdit()
         self.code_edit.setPlaceholderText("e.g. CA-001 — links a known individual")
         self.code_edit.setToolTip(
@@ -185,6 +202,7 @@ class ObservationsScreen(QWidget):
         universal_form.addRow("Observer", self.observer_edit)
         self.date_edit = QDateEdit()
         self.date_edit.setCalendarPopup(True)
+        self.date_edit.setDisplayFormat(DATE_DISPLAY_FORMAT)
         self.date_edit.setDate(QDate.currentDate())
         universal_form.addRow("Date", self.date_edit)
         self.notes_edit = QLineEdit()
@@ -321,6 +339,9 @@ class ObservationsScreen(QWidget):
     def _load_observation(self, observation: Observation) -> None:
         self._current = observation
         self._set_editing_enabled(True)
+        species = self._state.catalog.get_species(observation.species_id) if self._state.catalog else None
+        self.species_label.setText(species.scientific_name if species else "—")
+        self.change_species_button.setEnabled(True)
         self.code_edit.setText(self._individual_code(observation))
         self.observer_edit.setText(observation.observer)
         moment = observation.observed_at
@@ -609,6 +630,13 @@ class ObservationsScreen(QWidget):
             already_saved = self._current is not None and is_saved(self._current)
             self.save_button.setText("Save changes" if already_saved else "Save observation")
 
+    def open_change_species(self) -> ChangeSpeciesDialog:
+        """Open the Change Species dialog, scoped to the capture on screen. Returns it for tests."""
+        observation_id = self._current.id if self._current is not None else None
+        dialog = ChangeSpeciesDialog(self._state, self, observation_id=observation_id)
+        dialog.open()
+        return dialog
+
     def _clear_editor(self) -> None:
         self._current = None
         self._current_image = None
@@ -627,5 +655,7 @@ class ObservationsScreen(QWidget):
             self._form.setParent(None)
             self._form = None
         self._locked = False
+        self.species_label.setText("—")
+        self.change_species_button.setEnabled(False)
         self.save_button.setText("Save observation")
         self._set_editing_enabled(False)

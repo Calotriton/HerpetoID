@@ -6,8 +6,6 @@ so each species shows its own fields with the right labels and units — Core ha
 
 from __future__ import annotations
 
-from datetime import date, datetime
-
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -19,7 +17,17 @@ from PySide6.QtWidgets import (
 
 from herpetoid.api import FieldDefinition
 from herpetoid.domain import Observation
+from herpetoid.gui.formatting import format_date
 from herpetoid.gui.state import AppState
+
+__all__ = [
+    "InfoTable",
+    "format_date",
+    "location_rows",
+    "measurement_rows",
+    "observation_info_rows",
+    "species_field_definitions",
+]
 
 
 def species_field_definitions(state: AppState, species_id: int) -> list[FieldDefinition]:
@@ -37,14 +45,6 @@ def species_field_definitions(state: AppState, species_id: int) -> list[FieldDef
         return list(module.define_observation_fields())
     except Exception:  # a broken module must not break the screen
         return []
-
-
-def format_date(value: date | datetime | None) -> str | None:
-    if value is None:
-        return None
-    if isinstance(value, (date, datetime)):
-        return value.date().isoformat() if isinstance(value, datetime) else value.isoformat()
-    return str(value)
 
 
 def measurement_rows(

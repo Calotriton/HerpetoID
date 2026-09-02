@@ -4,6 +4,12 @@
 Open the **Observations** tab and click a row — the image appears on the right with zoom/pan. The
 **Import** tab also shows a thumbnail gallery of everything you've imported.
 
+**I imported everything under the wrong species. Can I change it?**
+Yes, and nothing has to be re-imported. **Project → Change Species…** (or the **Change…** button
+beside *Species* on the Observations tab) moves observations to another species, keeping the
+photographs, the marked regions and everything you have recorded. See *Adding Observations* for what
+happens to individuals and to fields the new species does not use.
+
 **Identification returns no candidates.**
 There must be at least one *other* observation of the same species to compare against. Import a few
 observations first.

@@ -32,7 +32,7 @@ from herpetoid import __version__
 from herpetoid.application.project_service import ProjectService
 
 from . import project_actions
-from .dialogs import ScreenDialog
+from .dialogs import ChangeSpeciesDialog, ScreenDialog
 from .dock import ProjectDock
 from .icons import icon
 from .screens.help import HelpScreen
@@ -175,6 +175,14 @@ class MainWindow(QMainWindow):
         )
         project_menu.addAction(self._identify_action)
         project_menu.addSeparator()
+        # Imported under the wrong species? This is where a researcher looks for the project's
+        # species, so this is where the way to change it belongs (the Observations tab has one
+        # too, beside the captures that show the mistake).
+        project_menu.addAction(
+            self._action(
+                "Change Species…", self.open_change_species_dialog, needs_project=True
+            )
+        )
         project_menu.addAction(
             self._action("Close Project", self._state.close_project, needs_project=True)
         )
@@ -384,6 +392,12 @@ class MainWindow(QMainWindow):
             self._dialogs[name] = dialog
         dialog.open_raised()
         return dialog.screen_widget
+
+    def open_change_species_dialog(self, observation_id: int | None = None) -> ChangeSpeciesDialog:
+        """Open the Change Species dialog and return it (window-modal, but non-blocking)."""
+        dialog = ChangeSpeciesDialog(self._state, self, observation_id=observation_id)
+        dialog.open()
+        return dialog
 
     def _create_dialog(self, name: str) -> ScreenDialog:
         state = self._state

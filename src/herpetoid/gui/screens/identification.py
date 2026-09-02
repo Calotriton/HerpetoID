@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QSizePolicy,
     QSplitter,
     QStackedWidget,
     QVBoxLayout,
@@ -42,13 +43,14 @@ from herpetoid.gui.state import AppState
 from herpetoid.gui.theme import section_label
 from herpetoid.gui.widgets.image_viewer import ndarray_to_qimage
 from herpetoid.gui.widgets.info_table import InfoTable
-from herpetoid.gui.widgets.match_overlay import MatchOverlayViewer
+from herpetoid.gui.widgets.match_overlay import MatchOverlayViewer, SourceImage
 from herpetoid.gui.widgets.observation_panel import (
     ObservationPanel,
     observation_image_and_roi,
     show_observation_info,
 )
 from herpetoid.gui.widgets.roi_preview import RoiPreview, roi_crop
+from herpetoid.gui.widgets.toast import Toast
 
 _THUMB_W, _THUMB_H = 96, 72
 
@@ -167,6 +169,7 @@ class IdentificationScreen(QWidget):
         layout.addLayout(self._build_controls())
         layout.addWidget(self._build_body(), 1)
         layout.addLayout(self._build_actions())
+        self.toast = Toast(self)
 
         state.project_changed.connect(self._refresh)
         self._refresh()
@@ -277,7 +280,7 @@ class IdentificationScreen(QWidget):
         detail_layout = QVBoxLayout(detail_panel)
         detail_layout.setContentsMargins(0, 0, 0, 0)
         self.overlay = MatchOverlayViewer()
-        detail_layout.addWidget(self.overlay, 3)
+        detail_layout.addWidget(self.overlay, 4)
         candidate_row = QHBoxLayout()
         self.candidate_info = InfoTable()
         candidate_row.addWidget(self.candidate_info, 1)
@@ -287,7 +290,7 @@ class IdentificationScreen(QWidget):
         roi_box.addWidget(self.candidate_roi)
         roi_box.addStretch(1)
         candidate_row.addLayout(roi_box)
-        detail_layout.addLayout(candidate_row, 1)
+        detail_layout.addLayout(candidate_row, 1)  # the data row yields space to the pictures
         splitter.addWidget(detail_panel)
 
         splitter.setStretchFactor(0, 2)
@@ -299,8 +302,11 @@ class IdentificationScreen(QWidget):
     def _build_actions(self) -> QHBoxLayout:
         actions = QHBoxLayout()
         self.status_label = QLabel()
-        actions.addWidget(self.status_label)
-        actions.addStretch(1)
+        self.status_label.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
+        )
+        self.status_label.setMinimumWidth(0)
+        actions.addWidget(self.status_label, 1)
         self._decision_label = QLabel("Your decision:")
         self._decision_label.setStyleSheet("color: palette(mid);")
         actions.addWidget(self._decision_label)
@@ -339,14 +345,8 @@ class IdentificationScreen(QWidget):
 
     # -- state -------------------------------------------------------------------------------------
     def _refresh(self) -> None:
-        self._candidates = []
-        self._query_observation_id = None
-        self._pair_cache.clear()
-        self.cards.clear()
+        self._clear_results()
         self.query_panel.clear()
-        self.candidate_info.clear_rows()
-        self.candidate_roi.clear_preview()
-        self.overlay.clear()
         self._populate_observations()
         self._populate_algorithms()
         has_project = self._state.project is not None
@@ -370,11 +370,16 @@ class IdentificationScreen(QWidget):
         self._update_action_buttons()
 
     def _populate_observations(self) -> None:
+        # Repopulating is not a user choice: whatever was being worked on must still be selected
+        # afterwards, or every save elsewhere in the app throws the reviewer back to the top.
+        keep = self.query_combo.currentData()
+        self.query_combo.blockSignals(True)
         self.query_combo.clear()
         self.obs_a_combo.clear()
         self.obs_b_combo.clear()
         catalog = self._state.catalog
         if catalog is None:
+            self.query_combo.blockSignals(False)
             return
         self._species_names = {s.id: s.scientific_name for s in catalog.list_species()}
         self._species_by_obs = {}
@@ -391,6 +396,10 @@ class IdentificationScreen(QWidget):
             self.obs_a_combo.addItem(label, obs.id)
             self.obs_b_combo.addItem(label, obs.id)
             self._species_by_obs[obs.id] = self._species_names.get(obs.species_id, "")
+        restored = self.query_combo.findData(keep) if keep is not None else -1
+        if restored >= 0:
+            self.query_combo.setCurrentIndex(restored)
+        self.query_combo.blockSignals(False)
         self._on_query_changed()
         self._update_species_label()
 
@@ -399,8 +408,25 @@ class IdentificationScreen(QWidget):
         species = self._species_by_obs.get(obs_id, "") if obs_id is not None else ""
         self.query_species_label.setText(f"Species: {species}" if species else "")
 
+    def _clear_results(self) -> None:
+        """Drop the candidates and the match evidence. They belong to one query and one run."""
+        self._candidates = []
+        self._query_observation_id = None
+        self._pair_cache.clear()
+        self.cards.clear()
+        self.candidate_info.clear_rows()
+        self.candidate_roi.clear_preview()
+        self.overlay.clear()
+        self.show_more_button.setEnabled(False)
+        self._update_action_buttons()
+
     def _on_query_changed(self) -> None:
         """Show the picked query immediately, so it is visible before running anything."""
+        picked = self.query_combo.currentData()
+        if self._query_observation_id is not None and picked != self._query_observation_id:
+            # Moving to another capture: the ranking on screen was computed for the old one, and
+            # leaving it up would invite a decision about the wrong pair.
+            self._clear_results()
         self._update_query_species()
         if self.mode() == "identify":
             obs_id = self.query_combo.currentData()
@@ -530,6 +556,21 @@ class IdentificationScreen(QWidget):
             self._show_match_evidence(candidate)
         self._update_action_buttons()
 
+    def _source_for(self, observation_id: int | None, role: str) -> SourceImage | None:
+        """One side of the composite: its name for the caption, and its whole photograph."""
+        catalog = self._state.catalog
+        if catalog is None or observation_id is None:
+            return None
+        image, roi = observation_image_and_roi(self._state, observation_id)
+        return SourceImage(f"{role} · {self._label_for(observation_id)}", image, roi)
+
+    def _label_for(self, observation_id: int) -> str:
+        """How a capture is named on screen: its individual code, else its pending code."""
+        index = self.query_combo.findData(observation_id)
+        if index >= 0:
+            return str(self.query_combo.itemText(index))
+        return f"Obs {observation_id}"
+
     def _show_match_evidence(self, candidate: Candidate) -> None:
         """Compute (lazily, cached per pair) and render the pairwise match for the selected card."""
         project = self._state.project
@@ -554,6 +595,9 @@ class IdentificationScreen(QWidget):
                 self.overlay.set_status("Could not compute the match for this pair.")
                 return
             self._pair_cache[obs_id] = comparison
+        self.overlay.set_pair(
+            self._source_for(query_id, "Query"), self._source_for(obs_id, "Candidate")
+        )
         self.overlay.show_comparison(comparison)
         card = self.cards.itemWidget(self.cards.currentItem())
         if isinstance(card, _CandidateCard):
@@ -571,8 +615,91 @@ class IdentificationScreen(QWidget):
         has_query = self._query_observation_id is not None
         self.confirm_button.setEnabled(has_query and self._selected_candidate() is not None)
         self.new_button.setEnabled(has_query)
+        assigned = self._query_individual_code()
+        pending = self._query_pending_code()
+        if assigned is not None:
+            # Re-assessing a capture that is already cataloged: "not a recapture" keeps the identity
+            # it has. Saying "mark as NEW" here would promise something it cannot deliver.
+            self.new_button.setText(f"✚ Not a recapture — keep {assigned}")
+            self.new_button.setToolTip(
+                f"This capture is already individual {assigned}. Use this to record that it "
+                "is not a recapture of any candidate; it keeps that identity and code."
+                "\n\nTo give it a different identity, edit the individual code on the "
+                "Observations tab."
+            )
+        else:
+            self.new_button.setText(
+                f"✚ Mark query as NEW individual ({pending})"
+                if pending
+                else "✚ Mark query as NEW individual"
+            )
+            self.new_button.setToolTip(
+                f"Creates individual {pending} from the code entered on the Observations tab."
+                if pending
+                else "Creates a new individual for this capture."
+            )
 
-    # -- confirm -----------------------------------------------------------------------------------
+    def _query_individual_code(self) -> str | None:
+        """The code of the individual the query is already assigned to, if any."""
+        catalog = self._state.catalog
+        if catalog is None or self._query_observation_id is None:
+            return None
+        query = catalog.get_observation(self._query_observation_id)
+        if query is None or query.individual_id is None:
+            return None
+        individual = catalog.get_individual(query.individual_id)
+        return individual.code if individual is not None else None
+
+    def _query_pending_code(self) -> str | None:
+        """The unconfirmed code typed on the Observations tab, if the query carries one."""
+        catalog = self._state.catalog
+        if catalog is None or self._query_observation_id is None:
+            return None
+        query = catalog.get_observation(self._query_observation_id)
+        return pending_code(query) if query is not None else None
+
+    def _announce(self, message: str, detail: str | None = None) -> None:
+        """Report a verdict where it cannot be missed: a short status line *and* a toast.
+
+        The status line has to share its row with the two decision buttons, so it carries the
+        headline only; the toast (and the tooltip) carry the whole thing.
+        """
+        self.status_label.setText(message)
+        self.status_label.setToolTip(detail or message)
+        self.toast.show_message(f"{message}\n{detail}" if detail else message)
+
+    def advance_to_next_unassessed(self) -> bool:
+        """Select the next capture that has not been through identification yet.
+
+        Working a season means going down the list once. Landing back on the first capture
+        after every decision means finding your place again each time; the natural next step
+        is the next capture nobody has looked at. Wraps around, and returns whether it moved.
+        """
+        catalog = self._state.catalog
+        count = self.query_combo.count()
+        if catalog is None or count == 0:
+            return False
+        assessed = catalog.identified_observation_ids()
+        start = self.query_combo.currentIndex()
+        for step in range(1, count + 1):
+            index = (start + step) % count
+            observation_id = self.query_combo.itemData(index)
+            if observation_id is not None and int(observation_id) not in assessed:
+                self.query_combo.setCurrentIndex(index)
+                return True
+        return False
+
+    def _advance_after_decision(self, outcome: str) -> None:
+        """Report the decision and move on to the next capture to assess."""
+        if self.advance_to_next_unassessed():
+            self._announce(f"{outcome} Next: {self.query_combo.currentText()}.")
+            return
+        self._announce(
+            outcome,
+            "Every capture with a marked region has now been through identification.",
+        )
+
+    # -- confirm -------------------------------------------------------------------------
     def confirm_same(self) -> None:
         candidate = self._selected_candidate()
         catalog = self._state.catalog
@@ -588,14 +715,16 @@ class IdentificationScreen(QWidget):
             catalog.link_observation(self._query_observation_id, individual.id)
             code = individual.code
         self._clear_pending_code(self._query_observation_id)  # superseded by the confirmed match
-        self.status_label.setText(f"Linked to individual {code}.")
         self._state.project_changed.emit()
+        self._advance_after_decision(f"Linked to individual {code}.")
 
     def mark_new(self) -> None:
-        """Confirm the query as a new individual — this is where individuals are actually created.
+        """Record the verdict "this is not a recapture of any candidate".
 
-        Reuses the code the user typed in the Observations editor (kept *pending* until now); if the
-        query is already assigned, it does nothing rather than minting a duplicate individual.
+        For an unassigned query that means creating the individual, reusing the code typed in the
+        Observations editor (kept *pending* until now). For a query that is **already** cataloged —
+        re-assessing a capture after a species change, say — it means keeping the identity it has:
+        there is no new individual to mint, and the code the user wants kept is already on it.
         """
         self._assign_query_as_new()
 
@@ -607,9 +736,18 @@ class IdentificationScreen(QWidget):
         if query is None:
             return
         if query.individual_id is not None:
+            # Already cataloged: the verdict still stands, it just costs no new individual. This
+            # used to return with only a status-label note, which read as the button doing
+            # nothing at all -- the one thing a decision button must never do.
             existing = catalog.get_individual(query.individual_id)
             code = existing.code if existing is not None else "?"
-            self.status_label.setText(f"Already assigned to individual {code}.")
+            self.status_label.setToolTip(
+                "Its identity and code are unchanged. To give it a different identity, edit "
+                "the individual code on the Observations tab."
+            )
+            self._advance_after_decision(
+                f"Kept as individual {code} — not a recapture of any candidate."
+            )
             return
         code_hint = code_override or pending_code(query)
         if code_hint:
@@ -623,7 +761,7 @@ class IdentificationScreen(QWidget):
         # Emit first: the refresh it triggers resets the status label, and this outcome must stay
         # visible afterwards.
         self._state.project_changed.emit()
-        self.status_label.setText(
+        self._advance_after_decision(
             f"Marked as the first individual of the project: {individual.code}."
             if first
             else f"Created individual {individual.code}."
@@ -721,6 +859,7 @@ class IdentificationScreen(QWidget):
 
         self.query_panel.show_observation(self._state, int(a_id))
         show_observation_info(self._state, self.candidate_info, self.candidate_roi, int(b_id))
+        self.overlay.set_pair(self._source_for(int(a_id), "A"), self._source_for(int(b_id), "B"))
         self.overlay.show_comparison(comparison)
 
     @property

@@ -87,7 +87,9 @@ def show_observation_info(
     fields = species_field_definitions(state, observation.species_id)
     info_table.show_rows(observation_info_rows(observation, fields, individual_code=code))
     image, roi = observation_image_and_roi(state, observation_id)
-    roi_preview.show_roi(image, roi)
+    # Name the pop-out window after the capture, so several open at once stay tellable apart.
+    title = f"{code} · Observation {observation_id}" if code else f"Observation {observation_id}"
+    roi_preview.show_roi(image, roi, title=title)
 
 
 def observation_image_and_roi(

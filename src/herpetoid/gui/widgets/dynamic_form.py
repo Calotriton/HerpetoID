@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 )
 
 from herpetoid.api import FieldDefinition, FieldType, ValidationResult
+from herpetoid.gui.formatting import DATE_DISPLAY_FORMAT
 
 _NUMERIC_RANGE = 1_000_000_000
 
@@ -72,6 +73,7 @@ class DynamicForm(QWidget):
             case FieldType.DATE | FieldType.DATETIME:
                 edit = QDateEdit()
                 edit.setCalendarPopup(True)
+                edit.setDisplayFormat(DATE_DISPLAY_FORMAT)
                 edit.setDate(QDate.currentDate())
                 return edit
             case _:
