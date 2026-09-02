@@ -29,13 +29,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from herpetoid.api import FieldDefinition, ROIKind, ROISpec, SpeciesModule
+from herpetoid.api import ROI, FieldDefinition, ROIKind, ROISpec, SpeciesModule
 from herpetoid.application.catalog_service import (
     PENDING_CODE_KEY,
     SAVED_KEY,
     is_saved,
     pending_code,
 )
+from herpetoid.application.orientation import rotate_roi, unrotate_roi
 from herpetoid.domain import Image, Location, Observation
 from herpetoid.gui.dialogs import ChangeSpeciesDialog
 from herpetoid.gui.formatting import DATE_DISPLAY_FORMAT
@@ -43,6 +44,7 @@ from herpetoid.gui.state import AppState
 from herpetoid.gui.theme import section_label
 from herpetoid.gui.widgets.dynamic_form import DynamicForm
 from herpetoid.gui.widgets.image_viewer import ndarray_to_qimage
+from herpetoid.gui.widgets.observation_panel import observation_image_and_roi
 from herpetoid.gui.widgets.roi_image_viewer import RoiImageViewer
 from herpetoid.gui.widgets.toast import Toast
 
@@ -116,6 +118,7 @@ class ObservationsScreen(QWidget):
 
         self.viewer = RoiImageViewer()
         self.viewer.roi_changed.connect(self._update_preview)
+        self.viewer.rotation_requested.connect(self.rotate_current_image)
         image_layout.addWidget(self.viewer, 1)
 
         self.guidance_label = QLabel()
@@ -433,13 +436,60 @@ class ObservationsScreen(QWidget):
         if not images:
             return
         self._current_image = images[0]
-        try:
-            self.viewer.set_image(project.image_store.load(self._current_image.rel_path))
-        except (OSError, ValueError):
+        if observation.id is None:
+            return
+        array, roi = observation_image_and_roi(self._state, observation.id)
+        if array is None:
             self.viewer.clear()
             return
-        if self._current_image.id is not None:
-            self.viewer.set_roi(catalog.get_image_roi(self._current_image.id))
+        self.viewer.set_image(array)
+        self.viewer.set_roi(roi)
+
+    def rotate_current_image(self, degrees: int) -> None:
+        """Turn the capture a quarter turn and keep it turned — on every screen, not just this one.
+
+        Two animals photographed head-to-tail are hard to compare side by side, so the correction has
+        to travel with the capture into the identification views. The region on screen turns with it,
+        including one drawn but not yet saved: rotating must never cost work in progress.
+        """
+        catalog = self._state.catalog
+        image = self._current_image
+        if catalog is None or image is None or image.id is None or not self.viewer.has_image():
+            return
+        shown = self.viewer.image()
+        if shown is None:
+            return
+        height, width = shown.shape[:2]
+        on_screen = self.viewer.roi()
+
+        was_editing = not self._locked
+        observation = self._current
+        if observation is None or observation.id is None:
+            return
+
+        # One place decides what a quarter turn does, shared with the identification query panel.
+        if catalog.rotate_observation_image(observation.id, degrees) is None:
+            return
+        # Tell every screen: a stale Identification tab would otherwise keep showing the capture the
+        # old way up until something else happened to refresh it.
+        self._state.project_changed.emit()
+
+        # That refresh reloaded this observation from the bundle, so put back the two things the
+        # reviewer had on screen and has not saved: the region being drawn, and an unlocked editor.
+        turned = rotate_roi(on_screen, degrees, width, height)
+        if turned is not None:
+            self.viewer.set_roi(turned)
+        if was_editing and self._locked:
+            self._apply_locked(False)
+        self._update_preview()
+
+    def _to_file_coordinates(self, roi: ROI) -> ROI:
+        """A region drawn on the turned image, mapped back to the coordinates of the stored file."""
+        shown = self.viewer.image()
+        if self._current_image is None or shown is None or not self._current_image.rotation:
+            return roi
+        height, width = shown.shape[:2]
+        return unrotate_roi(roi, self._current_image.rotation, width, height) or roi
 
     def _on_save_clicked(self) -> None:
         """The one bottom button: saves when editable, unlocks for editing when locked."""
@@ -513,7 +563,11 @@ class ObservationsScreen(QWidget):
             # the observation was re-selected and the "Saved" tick never went away.
             roi = self.viewer.roi()
             if roi is not None:
-                catalog.set_image_roi(self._current_image.id, roi)
+                # The region was drawn on the turned image; the bundle stores it in the
+                # coordinates of the file on disk, so turn it back on the way in.
+                catalog.set_image_roi(
+                    self._current_image.id, self._to_file_coordinates(roi)
+                )
             else:
                 catalog.clear_image_roi(self._current_image.id)
         missing = self._missing_details()

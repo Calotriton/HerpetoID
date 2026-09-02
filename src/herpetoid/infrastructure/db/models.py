@@ -19,6 +19,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -158,6 +159,9 @@ class ImageModel(Base):
     captured_at: Mapped[datetime | None] = mapped_column(DateTime)
     thumbnail_path: Mapped[str | None] = mapped_column(String(1024))
     aspect: Mapped[str] = mapped_column(String(20), default="unknown")
+    # server_default as well as default: bundles written before this column existed get it filled
+    # in for every existing row when the migration adds it (see Database.migrate_schema).
+    rotation: Mapped[int] = mapped_column(default=0, server_default=text("0"))
 
     observation: Mapped[ObservationModel] = relationship(back_populates="images")
     descriptors: Mapped[list[DescriptorModel]] = relationship(

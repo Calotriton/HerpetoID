@@ -16,6 +16,15 @@ It has two modes, switched with the buttons at the top left:
    to hide lines/points, limit how many are drawn, or fade them.
 4. Click **Show more candidates** to extend the ranking further down the catalog.
 
+Captures are shown the way up you left them on the Observations tab (see *Adding Observations* →
+*Turning a capture the right way up*), regions included — so an animal you turned upright is upright
+here too, and in the match evidence.
+
+You can also turn a capture **from here**: the **⟲ ⟳** buttons in the corner of the *Query
+observation* image do exactly what the editor's do — the turn is stored with the capture, the marked
+region follows it, and every other view shows the new orientation. If candidates are already on
+screen, the ranking is re-run so the match evidence matches the pictures beside it.
+
 ### Seeing the whole photograph
 
 Both the match evidence and the ROI crops show *fragments* — the marked region, normalized. When the

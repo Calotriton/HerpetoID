@@ -162,6 +162,7 @@ class IdentificationScreen(QWidget):
         self._pair_cache: dict[int, PairwiseComparison] = {}
         self._species_names: dict[int | None, str] = {}
         self._species_by_obs: dict[int | None, str] = {}
+        self._restored_compare_b = False
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
@@ -257,7 +258,10 @@ class IdentificationScreen(QWidget):
     def _build_body(self) -> QSplitter:
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
-        self.query_panel = ObservationPanel("Query observation")
+        # The query is the capture a reviewer needs upright to judge, so it carries the same
+        # turn buttons as the editor — and the turn is stored, exactly as it is there.
+        self.query_panel = ObservationPanel("Query observation", view_tools=True)
+        self.query_panel.viewer.rotation_requested.connect(self.rotate_shown_image)
         splitter.addWidget(self.query_panel)
 
         self._matches_panel = QWidget()
@@ -365,18 +369,20 @@ class IdentificationScreen(QWidget):
             )
         else:
             self.status_label.setText("")
-        if self.obs_b_combo.count() >= 2:
-            self.obs_b_combo.setCurrentIndex(1)  # default to a different second observation
+        if self.obs_b_combo.count() >= 2 and not self._restored_compare_b:
+            # Only a *first* population picks a default second observation; a later refresh must
+            # not silently swap the pair a reviewer is comparing.
+            self.obs_b_combo.setCurrentIndex(1)
         self._update_action_buttons()
 
     def _populate_observations(self) -> None:
         # Repopulating is not a user choice: whatever was being worked on must still be selected
         # afterwards, or every save elsewhere in the app throws the reviewer back to the top.
         keep = self.query_combo.currentData()
-        self.query_combo.blockSignals(True)
-        self.query_combo.clear()
-        self.obs_a_combo.clear()
-        self.obs_b_combo.clear()
+        keep_a, keep_b = self.obs_a_combo.currentData(), self.obs_b_combo.currentData()
+        for combo in (self.query_combo, self.obs_a_combo, self.obs_b_combo):
+            combo.blockSignals(True)
+            combo.clear()
         catalog = self._state.catalog
         if catalog is None:
             self.query_combo.blockSignals(False)
@@ -396,10 +402,17 @@ class IdentificationScreen(QWidget):
             self.obs_a_combo.addItem(label, obs.id)
             self.obs_b_combo.addItem(label, obs.id)
             self._species_by_obs[obs.id] = self._species_names.get(obs.species_id, "")
-        restored = self.query_combo.findData(keep) if keep is not None else -1
-        if restored >= 0:
-            self.query_combo.setCurrentIndex(restored)
-        self.query_combo.blockSignals(False)
+        self._restored_compare_b = False
+        for combo, previous in (
+            (self.query_combo, keep),
+            (self.obs_a_combo, keep_a),
+            (self.obs_b_combo, keep_b),
+        ):
+            restored = combo.findData(previous) if previous is not None else -1
+            if restored >= 0:
+                combo.setCurrentIndex(restored)
+                self._restored_compare_b = combo is self.obs_b_combo
+            combo.blockSignals(False)
         self._on_query_changed()
         self._update_species_label()
 
@@ -667,6 +680,30 @@ class IdentificationScreen(QWidget):
         self.status_label.setText(message)
         self.status_label.setToolTip(detail or message)
         self.toast.show_message(f"{message}\n{detail}" if detail else message)
+
+    def rotate_shown_image(self, degrees: int) -> None:
+        """Turn the capture in the query panel a quarter turn, and keep it turned.
+
+        The same stored turn the Observations editor applies — this is simply the other place
+        a reviewer notices that one animal is head-up and the other head-down. Evidence already
+        on screen was computed from the old orientation, so it is rebuilt rather than left to
+        contradict the pictures beside it.
+        """
+        catalog = self._state.catalog
+        observation_id = self.query_panel.observation_id
+        if catalog is None or observation_id is None:
+            return
+        if catalog.rotate_observation_image(observation_id, degrees) is None:
+            return
+        comparing = self.mode() == "compare"
+        rebuild = bool(self._candidates) or (comparing and self.overlay.comparison() is not None)
+        self._state.project_changed.emit()  # every view picks up the new orientation
+        if not rebuild:
+            return
+        if comparing:
+            self.compare()
+        else:
+            self.identify()
 
     def advance_to_next_unassessed(self) -> bool:
         """Select the next capture that has not been through identification yet.

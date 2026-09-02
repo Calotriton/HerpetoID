@@ -7,10 +7,12 @@ from pathlib import Path
 import numpy as np
 import pytest
 from PIL import Image as PilImage
+from sqlalchemy import inspect
 
 from herpetoid.application.catalog_service import CatalogService
 from herpetoid.application.project_service import ProjectService
 from herpetoid.domain import PluginRef
+from herpetoid.infrastructure.db.database import Database
 
 pytestmark = pytest.mark.integration
 
@@ -137,3 +139,61 @@ def test_roi_persistence_and_observation_update(tmp_path: Path) -> None:
     assert reloaded.measurements["svl"] == 55.0
     assert reloaded.measurements["sex"] == "male"
     context.close()
+
+
+def test_opening_an_older_bundle_adds_columns_its_tables_lack(tmp_path: Path) -> None:
+    """A bundle outlives the version that wrote it: a new column must reach an existing project.
+
+    ``create_all`` only adds missing *tables*, so before ``migrate_schema`` a researcher's existing
+    project would keep working right up until the first query touching the new column.
+    """
+    from sqlalchemy import text
+
+    from herpetoid.application.project_service import ProjectService
+
+    context = ProjectService().create(tmp_path / "bundle", "B")
+    catalog = CatalogService(context)
+    species = catalog.ensure_species("Calotriton asper")
+    assert species.id is not None
+    source = tmp_path / "newt.png"
+    _image(source)
+    observation = catalog.import_observation(species.id, [source])
+    assert observation.id is not None
+    context.close()
+
+    # Turn it back into a bundle written before the column existed.
+    database = Database.at_path(tmp_path / "bundle" / "project.db")
+    with database.engine.begin() as connection:
+        connection.execute(text("ALTER TABLE images DROP COLUMN rotation"))
+        assert "rotation" not in {c["name"] for c in inspect(database.engine).get_columns("images")}
+    database.dispose()
+
+    reopened = ProjectService().open(tmp_path / "bundle")
+    columns = {c["name"] for c in inspect(reopened.database.engine).get_columns("images")}
+    assert "rotation" in columns
+    images = CatalogService(reopened).images_for(observation.id)
+    assert images and images[0].rotation == 0  # existing rows get the declared default
+    assert images[0].original_filename == "newt.png"  # ...and nothing else was disturbed
+    reopened.close()
+
+
+def test_a_rotation_is_remembered_across_reopening(tmp_path: Path) -> None:
+    from herpetoid.application.project_service import ProjectService
+
+    context = ProjectService().create(tmp_path / "bundle", "B")
+    catalog = CatalogService(context)
+    species = catalog.ensure_species("Calotriton asper")
+    assert species.id is not None
+    source = tmp_path / "newt.png"
+    _image(source)
+    observation = catalog.import_observation(species.id, [source])
+    assert observation.id is not None
+    image = catalog.images_for(observation.id)[0]
+    assert image.id is not None and image.rotation == 0
+
+    catalog.set_image_rotation(image.id, 270)
+    context.close()
+
+    reopened = ProjectService().open(tmp_path / "bundle")
+    assert CatalogService(reopened).images_for(observation.id)[0].rotation == 270
+    reopened.close()

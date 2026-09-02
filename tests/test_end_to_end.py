@@ -34,6 +34,7 @@ from herpetoid.gui.screens.individuals import IndividualBrowserScreen
 from herpetoid.gui.screens.observations import ObservationsScreen
 from herpetoid.gui.screens.statistics import StatisticsScreen
 from herpetoid.gui.state import AppState
+from herpetoid.gui.widgets.observation_panel import observation_image_and_roi
 from herpetoid.infrastructure.plugin_discovery import discover_entry_points
 from herpetoid.infrastructure.settings_store import JsonSettingsStore
 
@@ -654,3 +655,89 @@ def test_a_project_imported_under_the_wrong_species_is_corrected_in_place(
     assert identification._candidates[0].observation.id == by_name["SS-recapture.png"]
     # The codes typed before the correction became the real individuals after it.
     assert {i.code for i in catalog.list_individuals()} == {"SS-002", "SS-003"}
+
+
+def test_turning_a_capture_travels_with_it_into_identification(tmp_path: Path, qtbot) -> None:
+    """A capture turned upright in the editor is turned everywhere — matcher included.
+
+    Two animals photographed head-to-tail are hard to judge side by side. Correcting one has to reach
+    the identification views, or the reviewer is comparing something the software is not.
+    """
+    cv2.setRNGSeed(29)
+    registry = PluginRegistry()
+    discover_entry_points(registry)
+    settings = SettingsService(JsonSettingsStore(tmp_path / "settings.json"))
+    state = AppState(
+        registry=registry, project_service=ProjectService(app_version="e2e"), settings=settings
+    )
+    window = MainWindow(state)
+    qtbot.addWidget(window)
+    state.create_project(tmp_path / "proj", "Turned")
+    catalog = state.catalog
+    assert catalog is not None
+
+    base = _spots(41)
+    files = {"a.png": base, "b.png": _rotate(base, 8), "c.png": _spots(404)}
+    for filename, gray in files.items():
+        _save(tmp_path / filename, gray)
+    importer = window.open_dialog("Import")
+    assert isinstance(importer, ImageImportScreen)
+    importer.species_combo.setCurrentText("Calotriton asper")
+    importer.observer_edit.setText("AL")
+    assert importer.import_files([tmp_path / name for name in files]) == 3
+
+    editor = window.find_screen(ObservationsScreen)
+    assert isinstance(editor, ObservationsScreen)
+    ids = {
+        catalog.images_for(o.id)[0].original_filename: o.id
+        for o in catalog.list_observations()
+        if o.id is not None
+    }
+    codes = {"a.png": "CA-001", "b.png": "CA-002", "c.png": "CA-003"}
+    for filename, observation_id in ids.items():
+        editor.select_observation(observation_id)
+        editor.viewer.set_roi(ROI.rectangle(10, 10, 236, 236))
+        editor.observer_edit.setText("AL")
+        editor.code_edit.setText(codes[filename])
+        editor.save()
+
+    # Turn one capture a quarter turn in the editor, as the researcher would for a head-down animal.
+    editor.select_observation(ids["b.png"])
+    editor.rotate_current_image(90)
+    turned_image = catalog.images_for(ids["b.png"])[0]
+    assert turned_image.rotation == 90
+    assert turned_image.id is not None
+
+    # The whole application now agrees on which way up it is.
+    array, roi = observation_image_and_roi(state, ids["b.png"])
+    assert array is not None and roi is not None
+    stored = catalog.get_image_roi(turned_image.id)
+    assert stored is not None
+    assert roi.bounding_box() != stored.bounding_box()  # the view turned it; the bundle did not
+
+    # And the matcher works on that same turned picture: the true recapture still ranks first.
+    identification = window.find_screen(IdentificationScreen)
+    assert isinstance(identification, IdentificationScreen)
+    identification.algorithm_combo.setCurrentIndex(identification.algorithm_combo.findData("orb"))
+    for filename in ("b.png", "c.png"):
+        identification.query_combo.setCurrentIndex(
+            identification.query_combo.findData(ids[filename])
+        )
+        identification.identify()
+        if identification._first_mark_button is not None:
+            identification._first_mark_button.click()
+        else:
+            identification.mark_new()
+    identification.query_combo.setCurrentIndex(identification.query_combo.findData(ids["a.png"]))
+    identification.identify()
+    assert identification._candidates, "no candidates after turning a capture"
+    assert identification._candidates[0].observation.id == ids["b.png"], (
+        "the turned recapture must still outrank the different animal"
+    )
+
+    # Reopening the bundle keeps the turn: it is stored, not a property of this session's view.
+    state.close_project()
+    state.open_project(tmp_path / "proj")
+    reopened = state.catalog
+    assert reopened is not None
+    assert reopened.images_for(ids["b.png"])[0].rotation == 90

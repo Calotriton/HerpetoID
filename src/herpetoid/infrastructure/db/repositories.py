@@ -117,6 +117,7 @@ def _image_to_entity(model: ImageModel) -> Image:
         image_format=model.image_format,
         captured_at=model.captured_at,
         thumbnail_path=model.thumbnail_path,
+        rotation=int(model.rotation or 0),
         aspect=ImageAspect(model.aspect),
         id=model.id,
     )
@@ -283,6 +284,7 @@ class ImageRepository:
             image_format=image.image_format,
             captured_at=image.captured_at,
             thumbnail_path=image.thumbnail_path,
+            rotation=int(image.rotation) % 360,
             aspect=image.aspect.value,
         )
         self._session.add(model)
@@ -306,6 +308,13 @@ class ImageRepository:
             return None
         points = tuple((float(p[0]), float(p[1])) for p in model.points)
         return ROI(kind=ROIKind(model.kind), points=points)
+
+    def set_rotation(self, image_id: int, degrees: int) -> None:
+        """Store the quarter turn the researcher applied to this photograph."""
+        model = self._session.get(ImageModel, image_id)
+        if model is None:
+            raise KeyError(f"no image with id {image_id}")
+        model.rotation = int(degrees) % 360
 
     def set_roi(self, image_id: int, roi: ROI) -> None:
         points = [[float(x), float(y)] for x, y in roi.points]

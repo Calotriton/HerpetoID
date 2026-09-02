@@ -80,6 +80,19 @@ you what that species expects.
 Mark the pattern itself, not the whole animal: a polygon that follows the belly or the back, without
 much of the hand or the substrate inside it, gives the matcher less to be distracted by.
 
+### Turning a capture the right way up
+
+The **⟲** and **⟳** buttons in the image's top-right corner turn the capture a quarter turn. The turn
+is **kept with the capture**: it is stored in the project and every other screen — the Identification
+tab, the match evidence, the catalog browser — shows the photograph the same way up, so two animals
+photographed head-to-tail can be compared side by side. The marked region turns with the picture, and
+so does a region you have drawn but not yet saved.
+
+Turning changes nothing about the animal: an already-identified capture keeps its individual. The
+photograph on disk is never rewritten either — the turn is recorded and applied when the image is
+loaded, so the original file stays exactly as your camera wrote it. **⤢** just refits the view to the
+window; to undo a turn, turn it back the other way.
+
 ## Tips
 
 - Supported formats: PNG, JPEG, TIFF, BMP.

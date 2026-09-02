@@ -20,6 +20,7 @@ from herpetoid.domain import Image, Individual, Observation, Species
 
 from .catalog_service import CatalogService
 from .identification import IdentificationService
+from .orientation import load_oriented
 from .project_service import ProjectContext
 from .registry import PluginRegistry
 
@@ -69,7 +70,7 @@ class IdentificationRunner:
             return []
 
         algorithm = self._registry.create_algorithm(algorithm_id)
-        query_sample = module.preprocess(self._load(query_image), self._roi_for(query_image))
+        query_sample = module.preprocess(*self._oriented(query_image))
 
         catalog_features: list[FeatureSet] = []
         image_by_ref: dict[str, Image] = {}
@@ -83,7 +84,7 @@ class IdentificationRunner:
             image = self._first_image(observation.id)
             if image is None:
                 continue
-            sample = module.preprocess(self._load(image), self._roi_for(image))
+            sample = module.preprocess(*self._oriented(image))
             features = algorithm.extract_features(sample)
             ref = str(observation.id)
             features.ref = ref
@@ -139,8 +140,8 @@ class IdentificationRunner:
             return None
 
         algorithm = self._registry.create_algorithm(algorithm_id)
-        sample_a = module.preprocess(self._load(image_a), self._roi_for(image_a))
-        sample_b = module.preprocess(self._load(image_b), self._roi_for(image_b))
+        sample_a = module.preprocess(*self._oriented(image_a))
+        sample_b = module.preprocess(*self._oriented(image_b))
         features_a = algorithm.extract_features(sample_a)
         features_b = algorithm.extract_features(sample_b)
         result = algorithm.compare(features_a, features_b)
@@ -157,10 +158,15 @@ class IdentificationRunner:
         images = self._catalog.images_for(observation_id)
         return images[0] if images else None
 
-    def _roi_for(self, image: Image) -> ROI:
-        if image.id is None:
-            return ROI.full_image()
-        return self._catalog.get_image_roi(image.id) or ROI.full_image()
+    def _oriented(self, image: Image) -> tuple[np.ndarray, ROI]:
+        """The photograph and its region, both turned as the researcher left them.
 
-    def _load(self, image: Image) -> np.ndarray:
-        return self._project.image_store.load(image.rel_path)
+        The matcher has to work on the same picture the reviewer is judging: if a capture was
+        turned upright in the editor, comparing the untouched file would rank it on evidence
+        nobody can see on screen.
+        """
+        roi = (
+            self._catalog.get_image_roi(image.id) if image.id is not None else None
+        ) or ROI.full_image()
+        array, turned = load_oriented(self._project.image_store, image, roi)
+        return array, turned or ROI.full_image()

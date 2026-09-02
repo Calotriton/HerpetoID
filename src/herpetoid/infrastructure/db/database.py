@@ -11,7 +11,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import Engine, create_engine, event
+from sqlalchemy import Engine, create_engine, event, inspect, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from .models import Base
@@ -22,6 +22,23 @@ def _enable_sqlite_foreign_keys(dbapi_connection: Any, _record: Any) -> None:
     cursor.execute("PRAGMA foreign_keys=ON")
     cursor.close()
 
+
+def _add_column_clause(column: Any, engine: Engine) -> str | None:
+    """The ``ADD COLUMN`` clause for a missing column, or ``None`` if it cannot be added safely.
+
+    SQLite refuses ``NOT NULL`` without a default on an existing table -- rightly, since it cannot
+    know what the existing rows should hold. Such a column is left alone rather than guessed at.
+    """
+    default = getattr(column.server_default, "arg", None)
+    literal = None if default is None else str(getattr(default, "text", default))
+    if not column.nullable and literal is None:
+        return None
+    clause = f'"{column.name}" {column.type.compile(engine.dialect)}'
+    if literal is not None:
+        clause += f" DEFAULT {literal}"
+    if not column.nullable:
+        clause += " NOT NULL"
+    return clause
 
 class Database:
     """Owns the SQLAlchemy engine and session factory for one project-bundle database."""
@@ -49,6 +66,35 @@ class Database:
     def create_schema(self) -> None:
         """Create all tables (used when initializing a fresh bundle)."""
         Base.metadata.create_all(self._engine)
+
+    def migrate_schema(self) -> list[str]:
+        """Add columns the models declare that an older bundle's tables lack.
+
+        A bundle is a portable folder that outlives the version of HerpetoID that wrote it, and
+        ``create_all`` only adds missing *tables*. This adds missing *columns*, which is what a
+        researcher's existing project needs when a release records something new about an image
+        or an observation. Purely additive: nothing is dropped, renamed or retyped, and a
+        column is only added when its declaration says what existing rows should hold
+        (nullable, or carrying a server default). Returns the ``table.column`` names added.
+        """
+        inspector = inspect(self._engine)
+        added: list[str] = []
+        with self._engine.begin() as connection:
+            for table in Base.metadata.sorted_tables:
+                if not inspector.has_table(table.name):
+                    continue  # create_schema will make it in full
+                present = {column['name'] for column in inspector.get_columns(table.name)}
+                for column in table.columns:
+                    if column.name in present:
+                        continue
+                    clause = _add_column_clause(column, self._engine)
+                    if clause is None:
+                        continue
+                    connection.execute(
+                        text(f'ALTER TABLE "{table.name}" ADD COLUMN {clause}')
+                    )
+                    added.append(f"{table.name}.{column.name}")
+        return added
 
     @contextmanager
     def session(self) -> Iterator[Session]:

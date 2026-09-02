@@ -89,6 +89,10 @@ class Image:
     captured_at: datetime | None = None
     thumbnail_path: str | None = None
     aspect: ImageAspect = ImageAspect.UNKNOWN
+    #: Quarter turns the researcher applied, clockwise degrees. The file on disk is never
+    #: rewritten: the turn is applied on load, along with the ROI (see
+    #: :mod:`herpetoid.application.orientation`).
+    rotation: int = 0
     id: int | None = None
 
 

@@ -2003,3 +2003,249 @@ def test_the_theme_styles_the_match_captions_like_the_mode_switch() -> None:
             sheet = _stylesheet(style, mode)
             assert "QLabel#matchCaption" in sheet
             assert "QPushButton#modeSwitch" in sheet  # the cell it is meant to match
+
+
+def test_turning_a_capture_keeps_it_turned_everywhere_and_carries_its_region(
+    app_state: AppState, tmp_path: Path, qtbot
+) -> None:
+    """The whole point: a capture turned upright in the editor stays that way in identification.
+
+    Two animals photographed head-to-tail cannot be compared side by side, so the correction has to
+    travel with the capture — and the marked region has to travel with it, or it lands off the animal.
+    """
+    from herpetoid.api import ROI
+    from herpetoid.gui.screens.observations import ObservationsScreen
+    from herpetoid.gui.widgets.observation_panel import observation_image_and_roi
+
+    ids = _identifiable_project(app_state, tmp_path, count=2)
+    catalog = app_state.catalog
+    assert catalog is not None
+    image = catalog.images_for(ids[0])[0]
+    assert image.id is not None
+    catalog.set_image_roi(image.id, ROI.rectangle(4, 4, 20, 10))  # a wide box on a 48x48 photo
+    app_state.project_changed.emit()
+
+    editor = ObservationsScreen(app_state)
+    qtbot.addWidget(editor)
+    editor.select_observation(ids[0])
+    shown = editor.viewer.image()
+    assert shown is not None and shown.shape[:2] == (48, 48)
+    before = editor.viewer.roi()
+    assert before is not None and before.bounding_box() == (4, 4, 20, 10)
+
+    editor.rotate_current_image(90)
+
+    # Persisted at once, like every other change in this application.
+    assert catalog.images_for(ids[0])[0].rotation == 90
+    turned = editor.viewer.roi()
+    assert turned is not None
+    assert turned.bounding_box() == (33, 4, 10, 20)  # the box turned with the picture
+
+    # Every other view loads it the same way up, region included.
+    array, roi = observation_image_and_roi(app_state, ids[0])
+    assert array is not None and roi is not None
+    assert roi.bounding_box() == turned.bounding_box()
+    assert array.shape[:2] == (48, 48)  # square here, so check the region did the moving
+
+    # Saving stores the region back in the file's own coordinates, so turning does not make it
+    # creep across the animal a little further each time.
+    editor.save()
+    assert catalog.get_image_roi(image.id).bounding_box() == (4, 4, 20, 10)
+    assert catalog.images_for(ids[0])[0].rotation == 90  # ...and the turn is still there
+
+
+def test_a_tab_already_open_on_the_capture_picks_up_the_turn(
+    app_state: AppState, tmp_path: Path, qtbot
+) -> None:
+    """A screen sitting on the capture must not keep showing it the old way up.
+
+    Caught by looking at a screenshot, not by a test: the Identification tab held the picture it had
+    loaded before the turn, because nothing told it anything had changed.
+    """
+    from herpetoid.gui.screens.identification import IdentificationScreen
+    from herpetoid.gui.screens.observations import ObservationsScreen
+
+    ids = _identifiable_project(app_state, tmp_path, count=2)
+    identification = IdentificationScreen(app_state)
+    qtbot.addWidget(identification)
+    identification.query_combo.setCurrentIndex(identification.query_combo.findData(ids[0]))
+    before = identification.query_panel.viewer.image_shape()
+    assert before is not None
+
+    editor = ObservationsScreen(app_state)
+    qtbot.addWidget(editor)
+    editor.select_observation(ids[0])
+    editor.rotate_current_image(90)
+
+    # ...without anyone touching the Identification tab.
+    assert identification.query_combo.currentData() == ids[0]
+    assert identification.query_panel.viewer.image_shape() == (before[1], before[0])
+
+
+def test_turning_a_capture_that_is_already_identified_keeps_its_identity(
+    app_state: AppState, tmp_path: Path, qtbot
+) -> None:
+    """Rotating is a viewing correction, not a re-identification: nothing about the animal changes."""
+    from herpetoid.gui.screens.observations import ObservationsScreen
+
+    ids = _identifiable_project(app_state, tmp_path, count=2)
+    catalog = app_state.catalog
+    assert catalog is not None
+    before = catalog.get_observation(ids[0])
+    assert before is not None and before.individual_id is not None
+
+    editor = ObservationsScreen(app_state)
+    qtbot.addWidget(editor)
+    editor.select_observation(ids[0])
+    editor.rotate_current_image(180)
+    editor.rotate_current_image(180)  # ...all the way back round
+
+    after = catalog.get_observation(ids[0])
+    assert after is not None and after.individual_id == before.individual_id
+    assert catalog.images_for(ids[0])[0].rotation == 0
+    roi = editor.viewer.roi()
+    assert roi is not None
+    assert roi.bounding_box() == (4, 4, 40, 40)  # two half turns leave the region where it was
+
+
+def test_an_unsaved_region_survives_a_turn(app_state: AppState, tmp_path: Path, qtbot) -> None:
+    """Rotating must never cost work in progress."""
+    from herpetoid.api import ROI
+    from herpetoid.gui.screens.observations import ObservationsScreen
+
+    ids = _identifiable_project(app_state, tmp_path, count=1)
+    editor = ObservationsScreen(app_state)
+    qtbot.addWidget(editor)
+    editor.select_observation(ids[0])
+    editor.viewer.set_roi(ROI.rectangle(2, 6, 10, 4))  # drawn, not saved
+
+    editor.rotate_current_image(90)
+
+    turned = editor.viewer.roi()
+    assert turned is not None
+    assert turned.bounding_box() == (37, 2, 4, 10)
+
+
+def test_the_query_panel_can_turn_the_capture_and_the_turn_sticks(
+    app_state: AppState, tmp_path: Path, qtbot
+) -> None:
+    """The other place a reviewer notices one animal is head-up and the other head-down."""
+    from herpetoid.gui.screens.identification import IdentificationScreen
+    from herpetoid.gui.screens.observations import ObservationsScreen
+
+    ids = _identifiable_project(app_state, tmp_path, count=2)
+    catalog = app_state.catalog
+    assert catalog is not None
+
+    identification = IdentificationScreen(app_state)
+    qtbot.addWidget(identification)
+    identification.query_combo.setCurrentIndex(identification.query_combo.findData(ids[0]))
+    assert identification.query_panel.observation_id == ids[0]
+    before = identification.query_panel.viewer.image_shape()
+    assert before is not None
+
+    # The toolbar only asks; the screen records it.
+    identification.query_panel.viewer.rotation_requested.emit(90)
+
+    assert catalog.images_for(ids[0])[0].rotation == 90
+    assert identification.query_panel.viewer.image_shape() == (before[1], before[0])
+
+    # ...and the editor, the other owner of this capture, opens it the same way up.
+    editor = ObservationsScreen(app_state)
+    qtbot.addWidget(editor)
+    editor.select_observation(ids[0])
+    shown = editor.viewer.image()
+    assert shown is not None and shown.shape[:2] == (before[1], before[0])
+    roi = editor.viewer.roi()
+    # A quarter turn of a 48x48 photo: the box lands at (3, 4) -- the ``h - 1 - y`` term is
+    # the last column, not a rounding slip.
+    assert roi is not None and roi.bounding_box() == (3, 4, 40, 40)
+
+
+def test_turning_the_query_rebuilds_the_evidence_it_invalidates(
+    app_state: AppState, tmp_path: Path, qtbot
+) -> None:
+    """Candidates computed from the old orientation must not sit beside the new pictures."""
+    from herpetoid.gui.screens.identification import IdentificationScreen
+
+    ids = _identifiable_project(app_state, tmp_path, count=2)
+    catalog = app_state.catalog
+    assert catalog is not None
+    screen = IdentificationScreen(app_state)
+    qtbot.addWidget(screen)
+    screen.query_combo.setCurrentIndex(screen.query_combo.findData(ids[0]))
+    screen.identify()
+    assert screen._candidates, "nothing to rebuild"
+
+    screen.rotate_shown_image(90)
+
+    assert catalog.images_for(ids[0])[0].rotation == 90
+    # Re-run for the same query, so the match evidence matches the pictures beside it.
+    assert screen._query_observation_id == ids[0]
+    assert screen._candidates
+
+
+def test_turning_before_any_run_does_not_start_one(
+    app_state: AppState, tmp_path: Path, qtbot
+) -> None:
+    from herpetoid.gui.screens.identification import IdentificationScreen
+
+    ids = _identifiable_project(app_state, tmp_path, count=2)
+    catalog = app_state.catalog
+    assert catalog is not None
+    screen = IdentificationScreen(app_state)
+    qtbot.addWidget(screen)
+    screen.query_combo.setCurrentIndex(screen.query_combo.findData(ids[0]))
+
+    screen.rotate_shown_image(180)
+
+    assert catalog.images_for(ids[0])[0].rotation == 180
+    assert screen._candidates == []  # turning is not a request to identify
+    assert screen._query_observation_id is None
+
+
+def test_compare_mode_keeps_its_pair_when_the_capture_is_turned(
+    app_state: AppState, tmp_path: Path, qtbot
+) -> None:
+    """A refresh must not silently swap which two captures are being compared."""
+    from herpetoid.gui.screens.identification import IdentificationScreen
+
+    ids = _identifiable_project(app_state, tmp_path, count=3)
+    screen = IdentificationScreen(app_state)
+    qtbot.addWidget(screen)
+    screen.set_mode("compare")
+    screen.obs_a_combo.setCurrentIndex(screen.obs_a_combo.findData(ids[1]))
+    screen.obs_b_combo.setCurrentIndex(screen.obs_b_combo.findData(ids[2]))
+    assert screen.query_panel.observation_id == ids[1]
+
+    screen.rotate_shown_image(90)
+
+    assert screen.obs_a_combo.currentData() == ids[1]
+    assert screen.obs_b_combo.currentData() == ids[2]
+
+
+def test_only_the_viewers_that_ask_for_the_turn_toolbar_get_one(qtbot) -> None:
+    """The match composite is two pictures in one frame; turning it would mean nothing."""
+    from herpetoid.gui.widgets.image_viewer import ImageViewer
+    from herpetoid.gui.widgets.match_overlay import MatchOverlayViewer
+    from herpetoid.gui.widgets.observation_panel import ObservationPanel
+    from herpetoid.gui.widgets.roi_image_viewer import RoiImageViewer
+
+    plain = ImageViewer()
+    qtbot.addWidget(plain)
+    assert plain._view_tools is None
+
+    editor_viewer = RoiImageViewer()  # the editor always has them
+    qtbot.addWidget(editor_viewer)
+    assert editor_viewer._view_tools is not None
+
+    panel = ObservationPanel("Query observation", view_tools=True)
+    qtbot.addWidget(panel)
+    assert panel.viewer._view_tools is not None
+    plain_panel = ObservationPanel("Plain")
+    qtbot.addWidget(plain_panel)
+    assert plain_panel.viewer._view_tools is None
+
+    overlay = MatchOverlayViewer()
+    qtbot.addWidget(overlay)
+    assert overlay.viewer._view_tools is None

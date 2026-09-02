@@ -10,6 +10,7 @@ import numpy as np
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from herpetoid.api import ROI
+from herpetoid.application.orientation import load_oriented
 from herpetoid.gui.state import AppState
 from herpetoid.gui.widgets.image_viewer import ImageViewer
 from herpetoid.gui.widgets.info_table import (
@@ -21,15 +22,22 @@ from herpetoid.gui.widgets.roi_preview import RoiPreview
 
 
 class ObservationPanel(QWidget):
-    """Image (dominant), with the observation's data box and ROI crop beneath."""
+    """Image (dominant), with the observation's data box and ROI crop beneath.
 
-    def __init__(self, title: str) -> None:
+    With ``view_tools`` the image carries the same floating turn/fit toolbar as the editor.
+    The panel only *asks* for a turn (``viewer.rotation_requested``); the screen that owns
+    the capture records it, so every view ends up showing the same orientation.
+    """
+
+    def __init__(self, title: str, *, view_tools: bool = False) -> None:
         super().__init__()
+        #: The observation currently on show, so a turn can be attributed to it.
+        self.observation_id: int | None = None
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         self.title_label = QLabel(f"<b>{title}</b>")
         layout.addWidget(self.title_label)
-        self.viewer = ImageViewer()
+        self.viewer = ImageViewer(view_tools=view_tools)
         layout.addWidget(self.viewer, 3)
         data_row = QHBoxLayout()
         self.info = InfoTable()
@@ -43,6 +51,7 @@ class ObservationPanel(QWidget):
         layout.addLayout(data_row, 2)
 
     def clear(self) -> None:
+        self.observation_id = None
         self.viewer.clear()
         self.info.clear_rows()
         self.roi.clear_preview()
@@ -58,6 +67,7 @@ class ObservationPanel(QWidget):
         self.clear()
         if observation_id is None:
             return
+        self.observation_id = observation_id
         show_observation_image(state, self.viewer, observation_id)
         show_observation_info(
             state, self.info, self.roi, observation_id, individual_code=individual_code
@@ -95,6 +105,11 @@ def show_observation_info(
 def observation_image_and_roi(
     state: AppState, observation_id: int
 ) -> tuple[np.ndarray | None, ROI | None]:
+    """The capture's first photograph and marked region, both turned as the researcher set them.
+
+    Every identification view comes through here, so a photograph cannot appear one way up on
+    one screen and another way up on the next.
+    """
     catalog = state.catalog
     project = state.project
     if catalog is None or project is None:
@@ -103,19 +118,28 @@ def observation_image_and_roi(
     if not images or images[0].id is None:
         return None, None
     try:
-        image = project.image_store.load(images[0].rel_path)
+        return load_oriented(
+            project.image_store, images[0], catalog.get_image_roi(images[0].id)
+        )
     except (OSError, ValueError):
         return None, None
-    return image, catalog.get_image_roi(images[0].id)
 
 
 def show_observation_image(state: AppState, viewer: ImageViewer, observation_id: int) -> None:
+    """Show the capture's photograph, turned as the researcher left it."""
     catalog = state.catalog
-    if catalog is None:
+    project = state.project
+    if catalog is None or project is None:
         return
     images = catalog.images_for(observation_id)
-    if images:
-        show_image_rel_path(state, viewer, images[0].rel_path)
+    if not images:
+        return
+    try:
+        array, _ = load_oriented(project.image_store, images[0])
+    except (OSError, ValueError):
+        viewer.clear()
+        return
+    viewer.set_image(array)
 
 
 def show_image_rel_path(state: AppState, viewer: ImageViewer, rel_path: str) -> None:

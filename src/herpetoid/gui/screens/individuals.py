@@ -39,6 +39,7 @@ from herpetoid.gui.widgets.info_table import (
     observation_info_rows,
     species_field_definitions,
 )
+from herpetoid.gui.widgets.observation_panel import observation_image_and_roi
 from herpetoid.gui.widgets.roi_preview import RoiPreview
 
 _COLUMNS = ["Code", "Name", "Sex", "Status", "Obs.", ""]
@@ -301,15 +302,10 @@ class IndividualBrowserScreen(QWidget):
         image = None
         roi = None
         if observation.id is not None:
-            images = catalog.images_for(observation.id)
-            if images:
-                try:
-                    image = project.image_store.load(images[0].rel_path)
-                    self.viewer.set_image(image)
-                except (OSError, ValueError):
-                    image = None
-                if images[0].id is not None:
-                    roi = catalog.get_image_roi(images[0].id)
+            # Turned as the researcher left it, region included (see .application.orientation).
+            image, roi = observation_image_and_roi(self._state, observation.id)
+            if image is not None:
+                self.viewer.set_image(image)
         fields = species_field_definitions(self._state, observation.species_id)
         self.info_table.show_rows(observation_info_rows(observation, fields))
         self.roi_preview.show_roi(image, roi)

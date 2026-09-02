@@ -374,6 +374,26 @@ class CatalogService:
         with self._project.database.session() as session:
             return ImageRepository(session).get_roi(image_id)
 
+    def rotate_observation_image(self, observation_id: int, degrees: int) -> int | None:
+        """Turn a capture's photograph a quarter turn; returns its new rotation, or ``None``.
+
+        Shared by the observation editor and the identification query panel, so a turn means the
+        same thing wherever it is asked for.
+        """
+        images = self.images_for(observation_id)
+        if not images or images[0].id is None:
+            return None
+        rotation = (images[0].rotation + degrees) % 360
+        self.set_image_rotation(images[0].id, rotation)
+        return rotation
+
+    def set_image_rotation(self, image_id: int, degrees: int) -> None:
+        """Record the quarter turn applied to a photograph (see :mod:`.orientation`)."""
+        from herpetoid.infrastructure.db.repositories import ImageRepository
+
+        with self._project.database.session() as session:
+            ImageRepository(session).set_rotation(image_id, degrees)
+
     def set_image_roi(self, image_id: int, roi: ROI) -> None:
         from herpetoid.infrastructure.db.repositories import ImageRepository
 
