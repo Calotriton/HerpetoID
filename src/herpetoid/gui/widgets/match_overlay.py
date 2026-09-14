@@ -409,7 +409,7 @@ class MatchOverlayViewer(QWidget):
         self.verdict_label.setStyleSheet(f"font-size: 15px; font-weight: 600; color: {color};")
         good = int(result.meta.get("good_matches", 0))
         self.detail_label.setText(
-            f"{result.inliers} inlier matches of {good} good\ninlier ratio {result.inlier_ratio:.2f}"
+            f"{result.inliers} inlier matches\nof {good} good matches"
         )
 
     def _palette_rgb(self, role: QPalette.ColorRole) -> tuple[int, int, int]:

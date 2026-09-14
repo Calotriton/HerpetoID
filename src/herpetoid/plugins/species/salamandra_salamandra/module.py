@@ -41,6 +41,11 @@ channel. The v1.0 recipe ranked correctly but its score ranges *overlapped* — 
 scored below the best false match, which a reviewer reads as an unconvincing shortlist. Binarizing
 with Otsu after a band-pass measured worse for both species and was dropped.
 
+The scores in this table and the next were measured with ORB 1.0, which averaged the inlier count
+with the inlier ratio. ORB 1.1 scores by agreeing matches alone (see
+:mod:`herpetoid.plugins.algorithms.orb.algorithm`), so compare the rows with each other, not with
+today's numbers.
+
 **Those figures come from synthetic images** (the generators live in ``tests/test_plugins.py``).
 On the two real field photographs available so far — different animals, hand-drawn ROIs, matched
 against re-posed copies of themselves — the ranking held up but the *channel* comparison came out the

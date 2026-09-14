@@ -1174,6 +1174,9 @@ def test_identification_screen_identify_select_confirm(
     assert screen.candidate_info.rowCount() > 0
     card = screen.cards.itemWidget(screen.cards.item(0))
     assert "inliers" in card.detail_label.text()  # detail line back-filled from the comparison
+    # The inlier ratio is not evidence (ORB 1.1): showing it only invites misreading a match.
+    assert "ratio" not in card.detail_label.text()
+    assert "ratio" not in screen.overlay.detail_label.text()
 
     # Re-selecting an already-computed card hits the cache (no extra compare run).
     screen.select_candidate(1)

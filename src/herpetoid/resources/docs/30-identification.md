@@ -62,9 +62,22 @@ Confirmed individuals appear on the **Individuals** tab, and recaptures feed the
 
 ## About the ORB algorithm
 
-ORB detects distinctive keypoints, matches them between two images (with a ratio test), and verifies the
-match geometrically (RANSAC homography). The score combines the number of verified inliers, the inlier
-ratio, and the geometric plausibility of the match.
+ORB detects distinctive keypoints and matches them between two images (with a ratio test). It then
+checks which matches agree on one way the animal could have moved between the photographs: shifted,
+turned, and closer or further away (a RANSAC similarity transform). The score **counts the matches
+that agree**. A handful agree by chance even between different animals, so those earn nothing, and
+each further agreeing match adds evidence.
+
+The colours on the score were calibrated on real fire-salamander photographs verified by eye: 82
+recaptures, and 78 pairs of *different* animals that had looked alike to a matcher.
+
+- **Green** (0.5 and above, about eight agreeing matches): reached by two thirds of the recaptures and
+  by 1% of the different animals.
+- **Amber** (0.25 and above, about six): reached by 87% of the recaptures and 9% of the different
+  animals.
+
+Treat green as a strong lead and amber as worth a look, never as proof. The calibration comes from
+the fire salamander, so for other species the colours are only a starting point.
 
 The algorithm never sees your photograph directly: the **species module** turns the region you marked
 into a normalized pattern image first, and that is what gets matched. Both modules that ship with

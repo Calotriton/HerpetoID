@@ -16,6 +16,7 @@ from herpetoid import api
 from herpetoid.application.registry import PluginRegistry
 from herpetoid.infrastructure.plugin_discovery import discover_entry_points
 from herpetoid.plugins.algorithms.orb import OrbAlgorithm
+from herpetoid.plugins.algorithms.orb.algorithm import inlier_score
 from herpetoid.plugins.species.calotriton_asper import CalotritonAsperModule
 from herpetoid.plugins.species.salamandra_salamandra import SalamandraSalamandraModule
 from herpetoid.testing import AlgorithmContract, SpeciesModuleContract
@@ -110,6 +111,79 @@ def test_rank_puts_same_individual_first() -> None:
     assert ranked.candidates[0].target_ref == "same-individual"
 
 
+def test_orb_score_bands_follow_the_calibration() -> None:
+    """The interface colours a score green at 0.5 and amber at 0.25, so those must mean something.
+
+    On verified fire-salamander photographs (82 recaptures, 78 look-alike different animals) the
+    count of geometrically agreeing matches separated the two: different animals rarely reach eight,
+    recaptures mostly do. The defaults put amber at six and green at eight.
+    """
+    config = OrbAlgorithm.descriptor().default_config
+
+    def score(n: int) -> float:
+        return inlier_score(n, config["chance_inliers"], config["inlier_scale"])
+
+    assert score(0) == score(4) == 0.0  # what chance produces earns nothing
+    assert score(5) < 0.25 <= score(6) < 0.5 <= score(8)
+    assert score(40) > 0.99
+    assert all(score(n) < score(n + 1) for n in range(5, 60))
+
+
+def _feature_set(descriptors: np.ndarray, points: np.ndarray) -> api.FeatureSet:
+    geometry = np.hstack(
+        [points, np.full((len(points), 1), 31.0), np.zeros((len(points), 1))]
+    ).astype(np.float32)
+    return api.FeatureSet("orb", api.AlgorithmFamily.KEYPOINT, descriptors, geometry)
+
+
+def test_orb_few_agreeing_matches_do_not_look_like_a_strong_match() -> None:
+    """Regression: ORB 1.0 scored six agreeing matches out of six at 0.6, a "Strong match".
+
+    It averaged the inlier count with the inlier *ratio*, and a handful of matches that all agree
+    has a perfect ratio. On real verified pairs the ratio told recaptures from different animals no
+    better than chance (AUC 0.53), and six agreeing matches is what different animals often reach.
+    """
+    rng = np.random.default_rng(5)
+    shared = rng.integers(0, 256, size=(6, 32), dtype=np.uint8)
+    query_points = rng.uniform(50, 450, size=(206, 2)).astype(np.float32)
+    target_points = rng.uniform(50, 450, size=(206, 2)).astype(np.float32)
+    turn = np.deg2rad(20.0)
+    similarity = 1.1 * np.array([[np.cos(turn), -np.sin(turn)], [np.sin(turn), np.cos(turn)]])
+    target_points[:6] = query_points[:6] @ similarity.T + np.array([30.0, -10.0])
+    query = _feature_set(
+        np.vstack([shared, rng.integers(0, 256, size=(200, 32), dtype=np.uint8)]), query_points
+    )
+    target = _feature_set(
+        np.vstack([shared, rng.integers(0, 256, size=(200, 32), dtype=np.uint8)]), target_points
+    )
+
+    result = OrbAlgorithm().compare(query, target)
+
+    assert result.meta["good_matches"] == 6 and result.inliers == 6
+    assert result.inlier_ratio == 1.0  # the old formula's half-score for free
+    assert 0.25 <= result.normalized_score < 0.5  # worth a look, not a strong match
+
+
+def test_orb_tolerance_follows_region_size() -> None:
+    """The same capture at twice the resolution must match as convincingly.
+
+    The RANSAC tolerance is a fraction of the matched region, not a pixel count, so a full-resolution
+    crop is not held to a stricter standard than a thumbnail.
+    """
+    module = CalotritonAsperModule(config={"denoise": False})
+    algorithm = OrbAlgorithm()
+    roi = api.ROI.full_image()
+    small = _spot_pattern(1)
+    large = cv2.resize(small, (512, 512), interpolation=cv2.INTER_LINEAR)
+    results = []
+    for image in (small, large):
+        query = algorithm.extract_features(module.preprocess(image, roi))
+        turned = algorithm.extract_features(module.preprocess(_rotate(image, 12), roi))
+        results.append(algorithm.compare(query, turned))
+    assert results[1].meta["tolerance_px"] > 1.5 * results[0].meta["tolerance_px"]
+    assert all(result.normalized_score >= 0.5 for result in results)
+
+
 def _newt_belly(seed: int, background_seed: int | None = None) -> np.ndarray:
     """A Calotriton asper belly: dark spots on a pale ground, held over wet rock (RGB)."""
     rng = np.random.default_rng(seed)
@@ -152,9 +226,10 @@ def test_calotriton_band_pass_survives_wet_field_lighting() -> None:
     )
     assert band.hits == band.queries, f"the band-pass missed {band.queries - band.hits}"
     assert band.worst_same > band.best_other, "true matches must outscore false ones"
-    # The effect is large: on these captures the band-pass roughly doubles the score a true
-    # recapture earns, and global equalization drops some true matches to zero.
-    assert band.mean_same > equalized.mean_same + 0.15
+    # The effect is large. The score saturates near 1 once a match has many agreeing keypoints, so
+    # compare how convincingly each recipe separates true from false matches (the gap between the
+    # weakest recapture and the strongest impostor), not raw means.
+    assert (band.worst_same - band.best_other) > (equalized.worst_same - equalized.best_other) + 0.2
     assert band.worst_same > equalized.worst_same
 
 

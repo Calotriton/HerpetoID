@@ -617,7 +617,7 @@ class IdentificationScreen(QWidget):
             result = comparison.result
             good = int(result.meta.get("good_matches", 0))
             card.set_detail(
-                f"{result.inliers} inliers of {good} good · ratio {result.inlier_ratio:.2f}"
+                f"{result.inliers} inliers of {good} good matches"
             )
 
     def _selected_candidate(self) -> Candidate | None:
