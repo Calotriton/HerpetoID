@@ -68,13 +68,17 @@ turned, and closer or further away (a RANSAC similarity transform). The score **
 that agree**. A handful agree by chance even between different animals, so those earn nothing, and
 each further agreeing match adds evidence.
 
-The colours on the score were calibrated on real fire-salamander photographs verified by eye: 82
-recaptures, and 78 pairs of *different* animals that had looked alike to a matcher.
+The colours on the score were calibrated on real fire-salamander photographs verified by eye: 87
+recaptures, and 223 pairs of *different* animals that had looked alike to one of two matchers searching
+whole collections.
 
-- **Green** (0.5 and above, about eight agreeing matches): reached by two thirds of the recaptures and
-  by 1% of the different animals.
-- **Amber** (0.25 and above, about six): reached by 87% of the recaptures and 9% of the different
+- **Green** (0.5 and above, about eight agreeing matches): reached by 63% of the recaptures and by
+  none of the different animals.
+- **Amber** (0.25 and above, about six): reached by 82% of the recaptures and 1% of the different
   animals.
+
+Each keypoint can only be matched once, and a match that would shrink or enlarge the pattern more than
+fourfold counts for nothing, so many spots cannot pile onto one spot and fake a strong match.
 
 Treat green as a strong lead and amber as worth a look, never as proof. The calibration comes from
 the fire salamander, so for other species the colours are only a starting point.

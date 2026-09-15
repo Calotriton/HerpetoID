@@ -164,6 +164,34 @@ def test_orb_few_agreeing_matches_do_not_look_like_a_strong_match() -> None:
     assert 0.25 <= result.normalized_score < 0.5  # worth a look, not a strong match
 
 
+def test_orb_many_to_one_matches_cannot_fake_a_strong_match() -> None:
+    """Regression: ORB 1.1 scored ~1.0 when many query keypoints matched ONE target keypoint.
+
+    A similarity transform with scale ~0 maps every query point onto that single point, so RANSAC
+    counted them all as agreeing. When a whole collection was searched, different animals reached 34
+    such "inliers" and were shown green. Matches must be one-to-one, and a fit that collapses the
+    pattern is no match.
+    """
+    rng = np.random.default_rng(11)
+    blob = rng.integers(0, 256, size=(1, 32), dtype=np.uint8)
+    near_copies = np.repeat(blob, 30, axis=0)
+    for row, column in enumerate(rng.integers(0, 32, size=30)):
+        near_copies[row, column] ^= 1  # one bit off: each still matches the blob, far below the rest
+    query = _feature_set(
+        np.vstack([near_copies, rng.integers(0, 256, size=(170, 32), dtype=np.uint8)]),
+        rng.uniform(50, 450, size=(200, 2)).astype(np.float32),
+    )
+    target = _feature_set(
+        np.vstack([blob, rng.integers(0, 256, size=(199, 32), dtype=np.uint8)]),
+        rng.uniform(50, 450, size=(200, 2)).astype(np.float32),
+    )
+
+    result = OrbAlgorithm().compare(query, target)
+
+    assert result.normalized_score < 0.25
+    assert result.inliers < 6
+
+
 def test_orb_tolerance_follows_region_size() -> None:
     """The same capture at twice the resolution must match as convincingly.
 
@@ -229,7 +257,8 @@ def test_calotriton_band_pass_survives_wet_field_lighting() -> None:
     # The effect is large. The score saturates near 1 once a match has many agreeing keypoints, so
     # compare how convincingly each recipe separates true from false matches (the gap between the
     # weakest recapture and the strongest impostor), not raw means.
-    assert (band.worst_same - band.best_other) > (equalized.worst_same - equalized.best_other) + 0.2
+    band_gap = band.worst_same - band.best_other
+    assert band_gap > 1.5 * (equalized.worst_same - equalized.best_other)
     assert band.worst_same > equalized.worst_same
 
 
