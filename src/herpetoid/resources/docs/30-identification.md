@@ -72,10 +72,17 @@ The colours on the score were calibrated on real fire-salamander photographs ver
 recaptures, and 223 pairs of *different* animals that had looked alike to one of two matchers searching
 whole collections.
 
-- **Green** (0.5 and above, about eight agreeing matches): reached by 63% of the recaptures and by
-  none of the different animals.
-- **Amber** (0.25 and above, about six): reached by 82% of the recaptures and 1% of the different
-  animals.
+- **Green: strong candidate** (0.5 and above, ten or more agreeing matches). When whole collections
+  were searched, two thirds of the green pairs were real recaptures and one third were not. Green
+  covers about half of all recaptures.
+- **Amber: possible match** (0.25 and above, six to nine agreeing matches). Most real recaptures
+  reach at least amber, but when a whole collection is searched most amber pairs are different
+  animals, so look closely.
+- **Red: weak.** Probably a different individual, though a recapture photographed very differently
+  can still land here.
+
+A score is evidence for *comparing the patterns yourself*, never a decision: the more photos a search
+covers, the more often a different animal reaches green by chance.
 
 Each keypoint can only be matched once, and a match that would shrink or enlarge the pattern more than
 fourfold counts for nothing, so many spots cannot pile onto one spot and fake a strong match.

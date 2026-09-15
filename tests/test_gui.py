@@ -1177,6 +1177,8 @@ def test_identification_screen_identify_select_confirm(
     # The inlier ratio is not evidence (ORB 1.1): showing it only invites misreading a match.
     assert "ratio" not in card.detail_label.text()
     assert "ratio" not in screen.overlay.detail_label.text()
+    # A score is a lead, not a verdict: searching many photos makes chance greens (ORB 1.3).
+    assert "likely the same individual" not in screen.overlay.verdict_label.text()
 
     # Re-selecting an already-computed card hits the cache (no extra compare run).
     screen.select_candidate(1)

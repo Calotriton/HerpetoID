@@ -114,18 +114,20 @@ def test_rank_puts_same_individual_first() -> None:
 def test_orb_score_bands_follow_the_calibration() -> None:
     """The interface colours a score green at 0.5 and amber at 0.25, so those must mean something.
 
-    On verified fire-salamander photographs (82 recaptures, 78 look-alike different animals) the
-    count of geometrically agreeing matches separated the two: different animals rarely reach eight,
-    recaptures mostly do. The defaults put amber at six and green at eight.
+    On the owner's verified fire-salamander pairs (104 recaptures, 363 look-alike different animals),
+    an exhaustive search found that green at eight agreeing matches was right only 22% of the time;
+    the false greens sat at 8-9 matches. Green at ten was right 67% of the time (v1.3). Amber starts
+    at six, where most recaptures already are.
     """
     config = OrbAlgorithm.descriptor().default_config
 
     def score(n: int) -> float:
         return inlier_score(n, config["chance_inliers"], config["inlier_scale"])
 
-    assert score(0) == score(4) == 0.0  # what chance produces earns nothing
-    assert score(5) < 0.25 <= score(6) < 0.5 <= score(8)
-    assert score(40) > 0.99
+    assert score(0) == score(3) == 0.0  # what chance produces earns nothing
+    assert score(5) < 0.25 <= score(6)
+    assert score(9) < 0.5 <= score(10)  # nine agreeing matches is not a strong candidate
+    assert score(60) > 0.99
     assert all(score(n) < score(n + 1) for n in range(5, 60))
 
 

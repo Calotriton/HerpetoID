@@ -398,11 +398,11 @@ class MatchOverlayViewer(QWidget):
         result = comparison.result
         score = float(result.normalized_score)
         if score >= 0.5:
-            color, verdict = "#2fae6b", "Strong match — likely the same individual"
+            color, verdict = "#2fae6b", "Strong candidate — compare the patterns to confirm"
         elif score >= 0.25:
-            color, verdict = "#e0a13a", "Moderate — inspect the pattern carefully"
+            color, verdict = "#e0a13a", "Possible match — look closely"
         else:
-            color, verdict = "#d9534f", "Weak — likely different individuals"
+            color, verdict = "#d9534f", "Weak — probably a different individual"
         self.score_label.setText(f"{score * 100:.0f}%")
         self.score_label.setStyleSheet(f"font-size: 34px; font-weight: 800; color: {color};")
         self.verdict_label.setText(verdict)

@@ -19,7 +19,7 @@ Two photographs of the same back differ by where the animal is, how it is turned
 appears: a similarity transform, which chance matches rarely agree on and which cannot mirror. Its
 inlier count alone ranks the verified pairs far better than the old score did (AUC 0.94 vs 0.79).
 :func:`inlier_score` maps that count to ``[0, 1]`` so that the interface's bands mean something on
-that data: *green* (>= 0.5) needs about eight agreeing matches, *amber* (>= 0.25) about six.
+that data: *green* (>= 0.5) needs ten agreeing matches, *amber* (>= 0.25) six (v1.3; see below).
 
 **v1.2: two guards against a collapse.** Searching a whole collection exposed a failure the first
 verified pairs did not contain. Many query keypoints can match *the same* target keypoint, and a
@@ -30,6 +30,24 @@ therefore one-to-one (each target keypoint keeps its closest query match), and a
 scale change exceeds ``max_scale_change`` scores zero. Measured on all 310 verified pairs (82+5
 recaptures, 78+145 different animals): AUC 0.79 -> 0.94, different animals shown green 30% -> 0%,
 recaptures shown green 67% -> 63%. The score also no longer depends on which photograph is the query.
+
+**v1.3: green recalibrated for searching a whole collection.** The per-pair calibration (green at
+eight inliers, no verified different animal reaching it) did not survive an exhaustive search. Among
+~160k comparisons, the chance tail of different animals at 8-9 inliers produced dozens of greens, and
+only 11 of 49 green pairs the owner checked were real recaptures. The false ones sat at the threshold
+(median 8 inliers), the real ones higher (median 10). On the owner's 467 verified pairs (104
+recaptures, 363 different animals):
+
+=================  ==========================  ==================  ====================
+green needs         precision in open search    recaptures green    different animals
+=================  ==========================  ==================  ====================
+8 inliers (v1.2)    22%                         63%                 10.5%
+**10 (v1.3)**       **67%**                     **46%**             **0.8%**
+12                  3/3                         33%                 0%
+=================  ==========================  ==================  ====================
+
+Green is therefore a strong *candidate*, not a verdict. A score that accounts for how many
+candidates were searched would address the cause; this only moves the bar.
 
 The constants are measured, not universal: they were fitted with the default ``nfeatures`` on the
 fire-salamander pattern images. Different species or settings shift the count a chance match
@@ -70,8 +88,8 @@ _DEFAULT_CONFIG: dict[str, Any] = {
     "max_scale_change": 4.0,
     # Score calibration (module docstring): how many agreeing matches chance alone produces, and how
     # many more it takes to carry the score most of the way to 1.
-    "chance_inliers": 4.5,
-    "inlier_scale": 5.0,
+    "chance_inliers": 3.0,
+    "inlier_scale": 10.0,
 }
 
 _CONFIG_SCHEMA: dict[str, Any] = {
@@ -162,7 +180,7 @@ class OrbAlgorithm(IdentificationAlgorithm):
         return AlgorithmDescriptor(
             algorithm_id="orb",
             name="ORB (keypoint matching)",
-            version="1.2",
+            version="1.3",
             family=AlgorithmFamily.KEYPOINT,
             score_semantics=ScoreSemantics.SIMILARITY,
             requires_grayscale=False,
