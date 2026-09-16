@@ -230,9 +230,20 @@ Engine code and its regression tests are in this repository (`src/herpetoid/plug
 
 ## 10. Work still needed for a defensible publication
 
-1. **A closed-set benchmark without selection bias.** Take a fixed set of photographs from one site
-   (~50), have the expert sort them into individuals by eye, and evaluate the engine against that
-   complete grouping. This measures recall honestly, which mined pairs cannot.
+1. **A closed-set benchmark without selection bias** — *prepared 2026-09-16, awaiting the expert's
+   grouping.* `recapture_candidates/closed_set_benchmark/`: **69 photographs**, one per observation,
+   being every observation from four survey nights at `andrej_funk_praha`'s busiest site (50.145 N,
+   14.384 E): 2023-10-09 (19), 2024-01-02 (20), 2025-10-25 (13), 2025-11-02 (17). The sampling unit is
+   the night, so no matcher influenced the selection; three seasons allow cross-year recaptures and two
+   nights eight days apart allow short-interval ones. No photograph was excluded (all 69 show a dorsal
+   pattern; the expert flags any unusable one in the manifest).
+   Protocol (`INSTRUCTIONS.md` in that folder): (a) the expert groups all 69 by eye **before** using the
+   software, so the grouping is independent of what is measured; (b) a fresh project is created, the
+   photographs imported, **regions drawn by hand** — the first measurement of the app with real regions
+   rather than automatic crops — and identification run in date order with sequential enrolment, as in a
+   real season. The project bundle records every run and score, so ranks can be extracted without manual
+   note-taking. Once the grouping exists, every one of the 2 346 possible pairs is labelled, which makes
+   **recall** measurable for the first time.
 2. **Independent verification** of a subset by a second experienced observer, reporting agreement.
 3. **Field-verified recaptures** if any exist (marked or otherwise known individuals).
 4. **Comparison with published tools** on the same photographs. Published fire-salamander figures
