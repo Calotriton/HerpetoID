@@ -92,6 +92,12 @@ formed by chaining confirmed pairs per photograph; **no confirmed-different pair
 | 3 | exhaustive ORB 1.2, all pairs | 16/120 | 1/37 | 17 same / 140 different |
 | 4 | round-1 recipe on the pool left after 1–3 | 7/50 | 0/50 | 7 same / 93 different |
 | **Total** | | | | **111 same / 456 different (567 pairs)** |
+| 5 | *(in progress)* new population `caracalshan`, mined by **both** recipes, union exported: 96 pairs (ORB-only 36, SIFT-only 36, both 24) over the 457 photographs both could process | — | — | awaiting verdicts |
+
+Round 5 exists because rounds 1–4 each flattered their own miner. With two recipes searching the same
+unseen collection and the union verified, the precision of "ORB-only", "SIFT-only" and "both" pairs
+becomes the first complementarity measurement in which neither recipe selected the pool. It does not
+fix the deeper bias in §8.1 (recaptures that *no* method proposes remain invisible).
 
 Resulting identities: **Andrej 49 individuals** (20 photographed on ≥3 nights, 40 spanning ≥1 calendar
 year, longest 2020→2026), **Philippe 7** (4 spanning ≥1 year). These are lower bounds: only mined
