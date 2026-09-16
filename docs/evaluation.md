@@ -91,13 +91,16 @@ formed by chaining confirmed pairs per photograph; **no confirmed-different pair
 | 2 | MiewID global embedding + ORB blend | 4/100 | 1/50 | 5 same / 145 different |
 | 3 | exhaustive ORB 1.2, all pairs | 16/120 | 1/37 | 17 same / 140 different |
 | 4 | round-1 recipe on the pool left after 1–3 | 7/50 | 0/50 | 7 same / 93 different |
-| **Total** | | | | **111 same / 456 different (567 pairs)** |
-| 5 | *(in progress)* new population `caracalshan`, mined by **both** recipes, union exported: 96 pairs (ORB-only 36, SIFT-only 36, both 24) over the 457 photographs both could process | — | — | awaiting verdicts |
+| 5 | new population `caracalshan`, mined by **both** recipes over the 457 photographs both could process, union exported | 33/96 correct (see §6.4) | — | 33 same / 63 different |
+| **Total** | | | | **144 same / 519 different (663 pairs)** |
 
-Round 5 exists because rounds 1–4 each flattered their own miner. With two recipes searching the same
-unseen collection and the union verified, the precision of "ORB-only", "SIFT-only" and "both" pairs
-becomes the first complementarity measurement in which neither recipe selected the pool. It does not
-fix the deeper bias in §8.1 (recaptures that *no* method proposes remain invisible).
+Round 5 exists because rounds 1–4 each flattered their own miner. Two recipes searched the same unseen
+collection, the union of their proposals was verified, and the precision of "ORB-only", "SIFT-only" and
+"both" pairs is therefore the first complementarity measurement in which neither recipe selected the
+pool. It does not fix the deeper bias in §8.1 (recaptures that *no* method proposes remain invisible).
+
+Identities from round 5: **caracalshan 24 individuals** (5 photographed on ≥3 nights, 20 spanning ≥1
+calendar year, longest 3 years), no contradictions.
 
 Resulting identities: **Andrej 49 individuals** (20 photographed on ≥3 nights, 40 spanning ≥1 calendar
 year, longest 2020→2026), **Philippe 7** (4 spanning ≥1 year). These are lower bounds: only mined
@@ -138,6 +141,42 @@ excluded); the rank of the first photograph of the same individual was recorded.
 
 (The 1.3 row uses a larger query set that includes harder identities added in round 4.)
 
+### 6.4 Round 5 — the unbiased comparison of two recipes
+
+96 pairs from a population neither recipe had seen, both proposing freely; 33 confirmed recaptures.
+
+**Precision by which recipe proposed the pair:**
+
+| Proposed by | Confirmed recaptures |
+|---|---|
+| Both recipes | 22/24 (92%) |
+| SIFT+LNBNN only | 9/36 (25%) |
+| ORB only | 2/36 (6%) |
+
+**As scorers, on the same 96 pairs:** SIFT+LNBNN AUC **0.913** (AP 0.896) vs ORB 1.3 AUC 0.798 (AP 0.819).
+
+| Rule | Recaptures caught | Different animals passed |
+|---|---|---|
+| ORB ≥ 12 inliers | 18/33 | 0/63 |
+| ORB ≥ 10 (app's green) | 20/33 | 4/63 |
+| SIFT ≥ 1.0 | 20/33 | **0/63** |
+| SIFT ≥ 0.5 | 31/33 | 29/63 |
+| ORB ≥ 10 **or** SIFT ≥ 1.0 | **24/33** | 4/63 |
+| ORB ≥ 10 **and** SIFT ≥ 0.5 | 19/33 | 0/63 |
+
+**13 of the 33 recaptures are invisible to ORB** (fewer than 10 agreeing matches, several as low as 3);
+12 of those score ≥0.5 with SIFT and 4 score ≥1.0. ORB's bands on this new population: green 20/24
+(83%), amber 6/40 (15%), weak 7/32 (22%).
+
+This **reverses** the conclusion drawn from rounds 1–4, where ORB looked uniformly better: those pools
+had been stripped of easy recaptures by one recipe or the other, and each round flattered its own
+miner. On a fresh population the two recipes are genuinely complementary, and running both would
+surface recaptures the app currently cannot reach.
+
+Caveats: one population, 33 recaptures; the pairs are the union of both recipes' proposals, so the AUC
+figures are conditional on a pair having been proposed by at least one of them — fair *between* the
+recipes, but not an absolute recall measure.
+
 ## 7. Approaches tested and rejected
 
 All measured on the same verified pairs; none adopted.
@@ -150,7 +189,7 @@ All measured on the same verified pairs; none adopted.
 | Search-size-aware scores (expected chance matches, global or per-query; robust standout) | AUC 0.808–0.858 vs 0.862 for the plain count |
 | Rank and margin rules ("top-1 only", "clear lead") | no gain: 33 of 38 false greens were already a search's top-1 |
 | LNBNN distinctiveness over ORB features | AUC 0.754 raw / 0.843 share vs 0.861; retrieval top-1 68% vs 82% |
-| RootSIFT + LNBNN (the round-1 recipe) vs ORB, symmetric | ORB better on **both** fair splits (rounds 2+3: 0.783 vs 0.676; rounds 1+4: 0.946 vs 0.800). Apparent complementarity (21 recaptures found only by SIFT) is **circular**: all 21 come from rounds SIFT itself mined, 0 from the 22 recaptures in rounds it did not |
+| RootSIFT + LNBNN (the round-1 recipe) vs ORB, symmetric on rounds 1–4 | ORB better on both fair splits (rounds 2+3: 0.783 vs 0.676; rounds 1+4: 0.946 vs 0.800); the apparent complementarity there (21 recaptures found only by SIFT) is **circular**, all 21 from rounds SIFT itself mined. **Superseded by §6.4**: on an unseen population SIFT scores better (AUC 0.913 vs 0.798) and finds recaptures ORB cannot. Retained here because it shows how misleading pools mined by the method under test are |
 
 ## 8. Limitations (essential for any publication)
 
