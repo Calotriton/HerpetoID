@@ -5,7 +5,8 @@ the limitations are. Every number here was measured in this repository or in the
 at the end; none is taken from literature unless cited as such. Chronological detail lives in
 `session-log.md`; this file is the consolidated record.
 
-Last updated: 2026-09-16 (round 5 mining in progress).
+Last updated: 2026-09-17 (closed-set benchmark completed — see §6.5, which supersedes the retrieval
+figures in §6.3).
 
 ---
 
@@ -177,6 +178,46 @@ Caveats: one population, 33 recaptures; the pairs are the union of both recipes'
 figures are conditional on a pair having been proposed by at least one of them — fair *between* the
 recipes, but not an absolute recall measure.
 
+### 6.5 Closed-set benchmark — the honest measurement
+
+69 photographs, four survey nights, one site; the expert grouped them **by eye before using the
+software**: 58 individuals, 10 seen more than once, **12 true recapture pairs** among 2 346 possible
+pairs. Regions were drawn by hand in the app (project `Test OBS 1.3`), so this measures the real
+workflow, not automatic crops.
+
+| | ORB 1.3 (shipped) | RootSIFT + LNBNN |
+|---|---|---|
+| Recaptures shown green / strong | **1 of 12** | 3 of 12 at zero false positives (≥2.0) |
+| Best recall at ≤4 false pairs in 2 334 | 1 of 12 (≥10 pts) | **5 of 12** (≥1.0) |
+| Different pairs shown green | 0 of 2 334 | 0 of 2 334 (≥2.0) |
+| True pairs scoring exactly zero | 5 of 12 | 6 of 12 |
+| Right animal ranked first | 6 of 21 (29%) | **12 of 21 (57%)** |
+| Top-5 / top-10 | 38% / 57% | **62% / 67%** |
+| Median rank of the true partner | 8 | **1** |
+
+**This overturns §6.3.** The 75–79% top-1 reported there came from identities discovered by mining, i.e.
+only recaptures some matcher could already see. On a set defined by *when the photographs were taken*,
+the shipped engine ranks the right animal first in **29%** of searches, not 79%.
+
+**Specificity is not the problem; recall is.** Zero of 2 334 different-animal pairs reach green with
+either method. Six of the twelve recaptures are missed by both at any usable threshold.
+
+**The expert's own app session** (77 identification runs) linked 6 pairs: 5 true (12-66, 16-35, 33-60,
+44-53, 46-49), 7 true pairs missed, and one pair linked that the expert's grouping calls different
+animals (61-62).
+
+**Two software defects found during this session:**
+
+1. **Scores move when a photograph is rotated** (median 0.10, worst 0.26 — enough to change band and
+   reshuffle the candidate list). The matcher itself is rotation-invariant (a photograph matches its own
+   quarter-turned copy at 1.00) and the region is mapped correctly (mask area differs by ≤20 px in
+   ~200 000, keypoint counts by ≤5 in ~1 000). The cause is that these recaptures rest on **4–9**
+   agreeing points, so one or two keypoints flipping near a detector threshold moves the score a whole
+   band. A symptom of thin evidence, not of broken geometry.
+2. **Identification results are not stored.** `match_runs` recorded all 77 runs but `matches` is empty:
+   `CatalogService.record_identification` writes only the run header, and nothing ever writes the ranked
+   candidates or the user's decision. Sessions are therefore not auditable and had to be reconstructed.
+
 ## 7. Approaches tested and rejected
 
 All measured on the same verified pairs; none adopted.
@@ -230,8 +271,7 @@ Engine code and its regression tests are in this repository (`src/herpetoid/plug
 
 ## 10. Work still needed for a defensible publication
 
-1. **A closed-set benchmark without selection bias** — *prepared 2026-09-16, awaiting the expert's
-   grouping.* `recapture_candidates/closed_set_benchmark/`: **69 photographs**, one per observation,
+1. ~~**A closed-set benchmark without selection bias**~~ — **done 2026-09-17, results in §6.5.** `recapture_candidates/closed_set_benchmark/`: **69 photographs**, one per observation,
    being every observation from four survey nights at `andrej_funk_praha`'s busiest site (50.145 N,
    14.384 E): 2023-10-09 (19), 2024-01-02 (20), 2025-10-25 (13), 2025-11-02 (17). The sampling unit is
    the night, so no matcher influenced the selection; three seasons allow cross-year recaptures and two
