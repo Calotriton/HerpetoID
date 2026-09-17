@@ -17,6 +17,8 @@ from herpetoid.application.registry import PluginRegistry
 from herpetoid.infrastructure.plugin_discovery import discover_entry_points
 from herpetoid.plugins.algorithms.orb import OrbAlgorithm
 from herpetoid.plugins.algorithms.orb.algorithm import inlier_score
+from herpetoid.plugins.algorithms.sift import SiftLnbnnAlgorithm
+from herpetoid.plugins.algorithms.sift.algorithm import lnbnn_score
 from herpetoid.plugins.species.calotriton_asper import CalotritonAsperModule
 from herpetoid.plugins.species.salamandra_salamandra import SalamandraSalamandraModule
 from herpetoid.testing import AlgorithmContract, SpeciesModuleContract
@@ -214,6 +216,71 @@ def test_orb_tolerance_follows_region_size() -> None:
     assert all(result.normalized_score >= 0.5 for result in results)
 
 
+class TestSiftLnbnnConformance(AlgorithmContract):
+    def make_algorithm(self) -> api.IdentificationAlgorithm:
+        return SiftLnbnnAlgorithm()
+
+
+def test_sift_score_bands_follow_the_closed_set_calibration() -> None:
+    """Green and amber must mean what the closed-set benchmark measured.
+
+    On 69 photographs grouped by eye (12 true recaptures among 2346 pairs), a raw distinctiveness
+    weight of ~1.0 was reached by 5 of 12 recaptures and only 4 of 2334 different pairs; ~0.5 by 6 of
+    12 and 86 of 2334. So green sits at 1.0 and amber at 0.5.
+    """
+    config = SiftLnbnnAlgorithm.descriptor().default_config
+
+    def score(weight: float) -> float:
+        return lnbnn_score(weight, config["chance_score"], config["score_scale"])
+
+    assert score(0.0) == score(config["chance_score"]) == 0.0
+    assert score(0.3) < 0.25 <= score(0.5)
+    assert score(0.9) < 0.5 <= score(1.0)
+    assert score(6.0) > 0.99
+    assert all(score(w) < score(w + 0.1) for w in np.arange(0.2, 5.0, 0.1))
+
+
+def test_sift_rank_puts_the_recapture_first() -> None:
+    """The catalog-wide ranking, which is where this algorithm's evidence comes from."""
+    module = SalamandraSalamandraModule()
+    algorithm = SiftLnbnnAlgorithm()
+    roi = _body_roi()
+    animal = _fire_salamander(11)
+
+    query = algorithm.extract_features(
+        module.preprocess(_field_capture(animal, np.random.default_rng(1)), roi)
+    )
+    catalog = []
+    for index, seed in enumerate((11, 21, 22, 23)):
+        features = algorithm.extract_features(
+            module.preprocess(_field_capture(_fire_salamander(seed), np.random.default_rng(2)), roi)
+        )
+        features.ref = "same-individual" if index == 0 else f"other-{index}"
+        catalog.append(features)
+
+    ranked = algorithm.rank(query, catalog)
+
+    assert ranked.candidates[0].target_ref == "same-individual"
+    assert ranked.candidates[0].normalized_score > ranked.candidates[1].normalized_score
+    assert all(0.0 <= c.normalized_score <= 1.0 for c in ranked.candidates)
+
+
+def test_sift_rank_survives_a_catalog_it_cannot_score() -> None:
+    """A fresh project has almost nothing to be distinctive against; ranking must still return."""
+    algorithm = SiftLnbnnAlgorithm()
+    empty = api.FeatureSet("sift_lnbnn", api.AlgorithmFamily.KEYPOINT, np.empty((0, 128), np.float32),
+                           np.empty((0, 4), np.float32))
+    empty.ref = "no-features"
+    query = algorithm.extract_features(
+        SalamandraSalamandraModule().preprocess(_fire_salamander(12), _body_roi())
+    )
+
+    ranked = algorithm.rank(query, [empty])
+
+    assert [c.target_ref for c in ranked.candidates] == ["no-features"]
+    assert ranked.candidates[0].normalized_score == 0.0
+
+
 def _newt_belly(seed: int, background_seed: int | None = None) -> np.ndarray:
     """A Calotriton asper belly: dark spots on a pale ground, held over wet rock (RGB)."""
     rng = np.random.default_rng(seed)
@@ -284,12 +351,13 @@ def test_first_party_plugins_discoverable_via_entry_points() -> None:
     registry = PluginRegistry()
     discover_entry_points(registry)
     assert registry.algorithm("orb") is not None
+    assert registry.algorithm("sift_lnbnn") is not None
     for module_id in ("calotriton_asper", "salamandra_salamandra"):
         assert registry.module(module_id) is not None
-        # capability matching wires each module to the ORB algorithm
+        # capability matching wires each module to both keypoint algorithms
         module = registry.create_module(module_id)
-        compatible = registry.algorithms_for(module.compatible_algorithms())
-        assert "orb" in {record.descriptor.algorithm_id for record in compatible}
+        compatible = {record.descriptor.algorithm_id for record in registry.algorithms_for(module.compatible_algorithms())}
+        assert {"orb", "sift_lnbnn"} <= compatible
 
 
 def test_species_modules_do_not_collide() -> None:

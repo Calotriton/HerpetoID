@@ -206,6 +206,20 @@ either method. Six of the twelve recaptures are missed by both at any usable thr
 44-53, 46-49), 7 true pairs missed, and one pair linked that the expert's grouping calls different
 animals (61-62).
 
+**The shipped plugin, measured through its own `rank()`** (2026-09-17, algorithm `sift_lnbnn` 1.0, same
+photographs and hand-drawn regions):
+
+| | ORB 1.3 | SIFT+LNBNN plugin |
+|---|---|---|
+| right animal ranked first | 6/21 (29%) | **10/21 (48%)** |
+| top-5 / top-10 | 48% / 57% | **57% / 62%** |
+| median rank | 9 | **2** |
+| true pairs shown green | 1/12 | **5/12** (0.53–0.88) |
+
+Slightly below the 57% of the research script in §6.5 above, for a principled reason: in the app the
+query's own descriptors are not in the catalog the distinctiveness is measured against, while the script
+left them in. The plugin's figure is the one that describes real use.
+
 **Two software defects found during this session:**
 
 1. **Scores move when a photograph is rotated** (median 0.10, worst 0.26 — enough to change band and

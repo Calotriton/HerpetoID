@@ -90,6 +90,27 @@ fourfold counts for nothing, so many spots cannot pile onto one spot and fake a 
 Treat green as a strong lead and amber as worth a look, never as proof. The calibration comes from
 the fire salamander, so for other species the colours are only a starting point.
 
+## Two algorithms, and which to choose
+
+The **Algorithm** box offers two matchers. Both read the same normalized pattern; they differ in how
+they judge a match.
+
+- **ORB (keypoint matching)** counts the spots that agree between two photographs. Fast, and it almost
+  never calls two different animals a strong match.
+- **SIFT + distinctiveness (LNBNN)** weighs every matched spot by how *unusual* it is across your whole
+  catalog: a mark most animals share earns little, a mark only one animal has earns a lot. It needs the
+  catalog, so its score is meaningful in **Identify** mode; in Compare A/B there is no catalog to be
+  distinctive against, and its number there is only a rough indication.
+
+On a benchmark of 69 photographs from four survey nights, grouped by a herpetologist before any software
+was used (12 real recaptures), searching the whole set put the right animal first in **29%** of searches
+with ORB and **48%** with SIFT + distinctiveness, and found 1 versus 5 of the recaptures at green. Both
+missed about half of the recaptures, and neither ever showed a different animal as green.
+
+**Use SIFT + distinctiveness as your default for the fire salamander**, and ORB as a second opinion —
+the two find partly different animals. Running both and comparing the shortlists is worthwhile when a
+capture matters.
+
 The algorithm never sees your photograph directly: the **species module** turns the region you marked
 into a normalized pattern image first, and that is what gets matched. Both modules that ship with
 HerpetoID throw the lighting away at this step — uneven torchlight and shadows vary slowly across a
