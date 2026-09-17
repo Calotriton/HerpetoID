@@ -1159,6 +1159,15 @@ def test_identification_screen_identify_select_confirm(
     assert catalog.identified_observation_ids() == set()
     screen.identify()
 
+    # The run stores its shortlist, not just the fact that it happened: without the candidates and
+    # the verdict a session cannot be audited afterwards, and a benchmark has to re-run the matcher.
+    assert screen._run_id is not None
+    stored = catalog.run_candidates(screen._run_id)
+    assert [rank for rank, *_ in stored] == list(range(1, len(screen._candidates) + 1))
+    assert all(decision == "pending" for *_, decision in stored)
+    assert stored[0][4] == screen._candidates[0].image.id  # candidate image recorded
+
+
     assert screen._candidates
     assert screen._candidates[0].observation.id == obs_b.id  # same individual (rotated) first
     assert obs_a.id in catalog.identified_observation_ids()  # a real run was recorded
@@ -1186,10 +1195,22 @@ def test_identification_screen_identify_select_confirm(
     screen.select_candidate(0)
     assert len(compare_calls) == 2
 
+    run_id = screen._run_id
+    assert run_id is not None
+    # Capture before deciding: confirming advances to the next capture, which clears the results.
+    confirmed_image_id = screen._candidates[0].image.id
     screen.confirm_same()  # links the query to the selected candidate's individual
     reloaded_a = catalog.get_observation(obs_a.id)
     assert reloaded_a is not None
     assert reloaded_a.individual_id == individuals[obs_b.id].id  # now share one individual
+
+    # The verdict is stored against the run: the candidate the researcher accepted, and the ones they
+    # implicitly rejected. Without this a session cannot be reviewed once the screen is closed.
+    decided = catalog.run_candidates(run_id)
+    confirmed = [row for row in decided if row[5] == "confirmed"]
+    assert len(confirmed) == 1
+    assert confirmed[0][4] == confirmed_image_id
+    assert {row[5] for row in decided} <= {"confirmed", "rejected"}
 
 
 def test_identification_screen_show_more(app_state: AppState, tmp_path: Path, qtbot) -> None:

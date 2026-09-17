@@ -33,7 +33,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from herpetoid.application.catalog_service import PENDING_CODE_KEY, pending_code
+from herpetoid.application.catalog_service import PENDING_CODE_KEY, CatalogService, pending_code
 from herpetoid.application.identification_runner import (
     Candidate,
     IdentificationRunner,
@@ -155,6 +155,7 @@ class IdentificationScreen(QWidget):
         self._state = state
         self._candidates: list[Candidate] = []
         self._query_observation_id: int | None = None
+        self._run_id: int | None = None  # the stored run the next decision belongs to
         self._first_dialog: QMessageBox | None = None
         self._first_mark_button: QPushButton | None = None
         self._first_code_dialog: _FirstIndividualCodeDialog | None = None
@@ -425,6 +426,7 @@ class IdentificationScreen(QWidget):
         """Drop the candidates and the match evidence. They belong to one query and one run."""
         self._candidates = []
         self._query_observation_id = None
+        self._run_id = None  # a verdict must never land on a run whose results are gone
         self._pair_cache.clear()
         self.cards.clear()
         self.candidate_info.clear_rows()
@@ -511,11 +513,25 @@ class IdentificationScreen(QWidget):
             self.status_label.setText(f"Identification failed: {exc}")
             return
 
-        # Record that this observation was actually run through identification (drives the
-        # Observations "Ident." column) — distinct from merely having an individual code assigned.
+        # Record the run *and its shortlist* (drives the Observations "Ident." column, and leaves an
+        # audit trail: what was proposed, how strongly, and — after a decision — what was concluded).
         catalog = self._state.catalog
+        self._run_id = None
         if catalog is not None:
-            catalog.record_identification(self._query_observation_id, str(algorithm_id))
+            self._run_id = catalog.record_identification(
+                self._query_observation_id,
+                str(algorithm_id),
+                [
+                    (
+                        candidate.rank,
+                        candidate.score,
+                        candidate.normalized_score,
+                        candidate.individual.id if candidate.individual else None,
+                        candidate.image.id,
+                    )
+                    for candidate in self._candidates
+                ],
+            )
 
         self.query_panel.show_observation(self._state, self._query_observation_id)
         self.candidate_info.clear_rows()
@@ -742,6 +758,7 @@ class IdentificationScreen(QWidget):
         catalog = self._state.catalog
         if candidate is None or catalog is None or self._query_observation_id is None:
             return
+        self._record_decision(catalog, confirmed_image_id=candidate.image.id)
         if candidate.individual is not None and candidate.individual.id is not None:
             catalog.link_observation(self._query_observation_id, candidate.individual.id)
             code = candidate.individual.code
@@ -765,6 +782,11 @@ class IdentificationScreen(QWidget):
         """
         self._assign_query_as_new()
 
+    def _record_decision(self, catalog: CatalogService, *, confirmed_image_id: int | None) -> None:
+        """Stamp the verdict on the run that produced the candidates, if one was recorded."""
+        if self._run_id is not None:
+            catalog.record_decision(self._run_id, confirmed_image_id=confirmed_image_id)
+
     def _assign_query_as_new(self, code_override: str | None = None, *, first: bool = False) -> None:
         catalog = self._state.catalog
         if catalog is None or self._query_observation_id is None:
@@ -772,6 +794,9 @@ class IdentificationScreen(QWidget):
         query = catalog.get_observation(self._query_observation_id)
         if query is None:
             return
+        # "None of these": every candidate the run proposed was rejected, whether or not the query
+        # already had an identity.
+        self._record_decision(catalog, confirmed_image_id=None)
         if query.individual_id is not None:
             # Already cataloged: the verdict still stands, it just costs no new individual. This
             # used to return with only a status-label note, which read as the button doing

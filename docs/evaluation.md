@@ -231,6 +231,11 @@ left them in. The plugin's figure is the one that describes real use.
 2. **Identification results are not stored.** `match_runs` recorded all 77 runs but `matches` is empty:
    `CatalogService.record_identification` writes only the run header, and nothing ever writes the ranked
    candidates or the user's decision. Sessions are therefore not auditable and had to be reconstructed.
+   **Fixed 2026-09-17:** a run now stores its shortlist (rank, score, normalized score, candidate
+   individual and image) and a decision stamps the accepted candidate `confirmed` and the rest
+   `rejected`. `CatalogService.run_candidates(run_id)` reads it back, so future evaluations can use what
+   the researcher actually saw instead of re-running the matcher. Sessions recorded **before** that date
+   — including the closed-set session in §6.5 — have no shortlist and remain reconstructions.
 
 ## 7. Approaches tested and rejected
 

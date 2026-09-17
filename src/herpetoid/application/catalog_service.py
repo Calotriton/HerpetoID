@@ -224,15 +224,47 @@ class CatalogService:
             return False
         return self.get_image_roi(images[0].id) is not None
 
-    def record_identification(self, observation_id: int, algorithm_id: str = "") -> None:
-        """Record that this observation was run through identification (a query in Candidates)."""
+    def record_identification(
+        self,
+        observation_id: int,
+        algorithm_id: str = "",
+        candidates: Sequence[tuple[int, float, float, int | None, int | None]] = (),
+    ) -> int | None:
+        """Record an identification run and its shortlist; returns the run id.
+
+        ``candidates`` are ``(rank, score, normalized score, individual id, image id)``. Storing them
+        is what makes a session auditable afterwards: which animals the software proposed, how strongly,
+        and — once :meth:`record_decision` is called — what the researcher concluded.
+        """
         from herpetoid.infrastructure.db.repositories import MatchRunRepository
 
         images = self.images_for(observation_id)
         if not images or images[0].id is None:
-            return
+            return None
         with self._project.database.session() as session:
-            MatchRunRepository(session).add(images[0].id, algorithm_id)
+            runs = MatchRunRepository(session)
+            run_id = runs.add(images[0].id, algorithm_id)
+            if candidates:
+                runs.add_candidates(run_id, candidates)
+            return run_id
+
+    def record_decision(
+        self, run_id: int, *, confirmed_image_id: int | None = None, decided_by: str = ""
+    ) -> None:
+        """Stamp the verdict on a run: the confirmed candidate, or none of them (a new individual)."""
+        from herpetoid.infrastructure.db.repositories import MatchRunRepository
+
+        with self._project.database.session() as session:
+            MatchRunRepository(session).record_decision(
+                run_id, confirmed_image_id=confirmed_image_id, decided_by=decided_by
+            )
+
+    def run_candidates(self, run_id: int) -> list[tuple[int, float, float, int | None, int | None, str]]:
+        """A stored run's shortlist with each decision (audit trail / benchmarking)."""
+        from herpetoid.infrastructure.db.repositories import MatchRunRepository
+
+        with self._project.database.session() as session:
+            return MatchRunRepository(session).candidates_for(run_id)
 
     def identified_observation_ids(self) -> set[int]:
         """Observations that have been run through identification at least once (see Candidates)."""

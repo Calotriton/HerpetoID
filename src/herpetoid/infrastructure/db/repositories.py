@@ -6,6 +6,7 @@ caller (typically ``with database.session() as session: ...``).
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import date, datetime
 from typing import Any
 
@@ -30,6 +31,7 @@ from .models import (
     ImageModel,
     ImageRoiModel,
     IndividualModel,
+    MatchModel,
     MatchRunModel,
     MetadataModel,
     ObservationModel,
@@ -434,15 +436,83 @@ class ObservationRepository:
 
 
 class MatchRunRepository:
-    """Records identification runs so a screen can tell which observations were actually identified."""
+    """Records identification runs: which observations were identified, what was proposed, and the verdict.
+
+    The candidates and the decision are what make a session auditable — a run whose shortlist is lost
+    cannot be re-examined later, and a benchmark has to be reconstructed by re-running the matcher.
+    Candidates arrive as plain tuples so this layer never imports application types.
+    """
 
     def __init__(self, session: Session) -> None:
         self._session = session
 
-    def add(self, query_image_id: int, algorithm_id: str = "") -> None:
-        self._session.add(
-            MatchRunModel(query_image_id=query_image_id, algorithm_id=algorithm_id)
+    def add(self, query_image_id: int, algorithm_id: str = "") -> int:
+        """Start a run and return its id, so its candidates can be attached."""
+        run = MatchRunModel(query_image_id=query_image_id, algorithm_id=algorithm_id)
+        self._session.add(run)
+        self._session.flush()  # assigns the id
+        return int(run.id)
+
+    def add_candidates(
+        self,
+        run_id: int,
+        candidates: Iterable[tuple[int, float, float, int | None, int | None]],
+    ) -> None:
+        """Store a run's shortlist: ``(rank, score, normalized score, individual id, image id)``."""
+        for rank, score, normalized_score, individual_id, image_id in candidates:
+            self._session.add(
+                MatchModel(
+                    run_id=run_id,
+                    rank=int(rank),
+                    score=float(score),
+                    normalized_score=float(normalized_score),
+                    candidate_individual_id=individual_id,
+                    candidate_image_id=image_id,
+                )
+            )
+
+    def record_decision(
+        self, run_id: int, *, confirmed_image_id: int | None = None, decided_by: str = ""
+    ) -> None:
+        """Stamp the user's verdict: the chosen candidate is confirmed, every other one rejected.
+
+        ``confirmed_image_id`` of ``None`` means "none of these" — the query was a new individual.
+        """
+        decided_at = datetime.now()
+        stmt = select(MatchModel).where(MatchModel.run_id == run_id)
+        for match in self._session.scalars(stmt):
+            chosen = (
+                confirmed_image_id is not None and match.candidate_image_id == confirmed_image_id
+            )
+            match.decision = "confirmed" if chosen else "rejected"
+            match.decided_by = decided_by or None
+            match.decided_at = decided_at
+
+    def candidates_for(self, run_id: int) -> list[tuple[int, float, float, int | None, int | None, str]]:
+        """A run's stored shortlist with each decision, best rank first (for audit and benchmarking)."""
+        stmt = select(MatchModel).where(MatchModel.run_id == run_id).order_by(MatchModel.rank)
+        return [
+            (
+                int(m.rank),
+                float(m.score),
+                float(m.normalized_score),
+                m.candidate_individual_id,
+                m.candidate_image_id,
+                str(m.decision),
+            )
+            for m in self._session.scalars(stmt)
+        ]
+
+    def latest_run_for_image(self, query_image_id: int) -> int | None:
+        """The most recent run that used this image as the query."""
+        stmt = (
+            select(MatchRunModel.id)
+            .where(MatchRunModel.query_image_id == query_image_id)
+            .order_by(MatchRunModel.id.desc())
+            .limit(1)
         )
+        run_id = self._session.scalar(stmt)
+        return int(run_id) if run_id is not None else None
 
     def identified_observation_ids(self) -> set[int]:
         """Observation ids whose image has been used as a query (i.e. run through identification)."""
