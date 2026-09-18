@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -53,7 +54,13 @@ class ROI:
         return cls(kind=ROIKind.RECTANGLE, points=((x, y), (x + w, y + h)))
 
     def bounding_box(self) -> tuple[int, int, int, int] | None:
-        """Axis-aligned integer bounding box ``(x, y, w, h)``, or ``None`` for a full-image ROI."""
+        """Integer box ``(x, y, w, h)`` covering every pixel the region touches — ``None`` if full.
+
+        The minimum is floored and the maximum **ceiled**. Flooring both ends drops the region's
+        last partial pixel, and because the floor of a mirrored coordinate is not the mirror of its
+        floor, it also makes the box depend on which way up the photograph is — which slid the crop
+        a matcher sees. See :func:`herpetoid.application.orientation.rotate_point`.
+        """
         if self.kind is ROIKind.FULL_IMAGE:
             return None
         if self.mask is not None and not self.points:
@@ -67,8 +74,8 @@ class ROI:
             return None
         xs = [p[0] for p in self.points]
         ys = [p[1] for p in self.points]
-        x0, y0 = int(min(xs)), int(min(ys))
-        x1, y1 = int(max(xs)), int(max(ys))
+        x0, y0 = math.floor(min(xs)), math.floor(min(ys))
+        x1, y1 = math.ceil(max(xs)), math.ceil(max(ys))
         return (x0, y0, x1 - x0, y1 - y0)
 
 

@@ -713,7 +713,11 @@ def test_turning_a_capture_travels_with_it_into_identification(tmp_path: Path, q
     assert array is not None and roi is not None
     stored = catalog.get_image_roi(turned_image.id)
     assert stored is not None
-    assert roi.bounding_box() != stored.bounding_box()  # the view turned it; the bundle did not
+    # The view turned it; the bundle did not. This region is inset equally on all four sides, so a
+    # quarter turn leaves its bounding box exactly where it was — as it must — and the corners are
+    # what moved.
+    assert roi.points != stored.points
+    assert stored.points == ROI.rectangle(10, 10, 236, 236).points
 
     # And the matcher works on that same turned picture: the true recapture still ranks first.
     identification = window.find_screen(IdentificationScreen)

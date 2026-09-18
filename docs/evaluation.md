@@ -222,7 +222,9 @@ left them in. The plugin's figure is the one that describes real use.
 
 ### 6.6 Step 3: thresholds and rotation — what the evidence allowed
 
-Three rotation fixes were measured on the closed set and **all rejected**:
+Three rotation fixes were measured on the closed set and **all rejected**. The verdicts stand, but the
+reasoning behind them was wrong: all three treated a symptom whose cause had not been found.
+**Superseded 2026-09-18 by §6.7**, which found it.
 
 | candidate fix | recaptures green | different pairs green | verdict |
 |---|---|---|---|
@@ -267,11 +269,12 @@ on the largest real catalog (457 photographs, 110 285 descriptors) an identifica
 **Two software defects found during this session:**
 
 1. **Scores move when a photograph is rotated** (median 0.10, worst 0.26 — enough to change band and
-   reshuffle the candidate list). The matcher itself is rotation-invariant (a photograph matches its own
-   quarter-turned copy at 1.00) and the region is mapped correctly (mask area differs by ≤20 px in
-   ~200 000, keypoint counts by ≤5 in ~1 000). The cause is that these recaptures rest on **4–9**
-   agreeing points, so one or two keypoints flipping near a detector threshold moves the score a whole
-   band. A symptom of thin evidence, not of broken geometry.
+   reshuffle the candidate list). This was attributed to thin evidence: recaptures rest on **4–9**
+   agreeing points, so one or two keypoints flipping near a detector threshold moves a whole band.
+   **That diagnosis was wrong.** The observations behind it were sound — the matcher *is*
+   rotation-invariant on a pattern turned losslessly, and the region *is* mapped to the right part of
+   the animal — but "the region is mapped correctly" was checked only to within a few pixels, and the
+   defect was a two-pixel slip. Found and fixed 2026-09-18: **see §6.7.**
 2. **Identification results are not stored.** `match_runs` recorded all 77 runs but `matches` is empty:
    `CatalogService.record_identification` writes only the run header, and nothing ever writes the ranked
    candidates or the user's decision. Sessions are therefore not auditable and had to be reconstructed.
@@ -280,6 +283,61 @@ on the largest real catalog (457 photographs, 110 285 descriptors) an identifica
    `rejected`. `CatalogService.run_candidates(run_id)` reads it back, so future evaluations can use what
    the researcher actually saw instead of re-running the matcher. Sessions recorded **before** that date
    — including the closed-set session in §6.5 — have no shortlist and remain reconstructions.
+
+### 6.7 The rotation defect: a two-pixel crop slip (2026-09-18)
+
+The symptom in §6.6 had a single findable cause, and it was not thin evidence. Turning a photograph slid
+the crop handed to the matcher by **two pixels**. Two off-by-one errors compounded:
+
+* `rotate_point` mapped a region's vertex with `height - 1 - y` — the correct mirror for a pixel
+  *index*, but a hand-drawn vertex is a *place* on the image plane, whose far edge is at `height`.
+  One pixel per quarter turn.
+* `ROI.bounding_box()` floored both ends (`int(max) - int(min)`), dropping the region's last partial
+  pixel; and the floor of a mirrored coordinate is not the mirror of its floor. A second pixel.
+
+What identified it: the prepared pattern at 90° was not merely *different* from the pattern at 0°, it was
+the **same image in the wrong place**. Realigning the two by an integer offset dropped the residual to
+0.02–0.31 grey levels, and the best offset was exactly (+2, 0) at 90°, (+2, +2) at 180°, (0, +2) at 270°
+— one axis per quarter turn, two at 180°. On a band-passed pattern a two-pixel slide changes 30–75 % of
+the pixels and flips ~40 % of the keypoints, which is why scores and shortlists moved.
+
+**Fix.** Map vertices with `height - y`; floor the box's minimum and *ceil* its maximum. Both are needed
+— either alone leaves a one-pixel slip. The crop is then exactly equivariant (**0** differing pixels over
+120 random polygons × 3 turns), and the mask, re-rasterized from turned vertices, disagrees only along
+its own outline (**0** pixels off the boundary). Regression test:
+`tests/test_orientation.py::test_a_turned_region_crops_exactly_the_same_pixels`.
+
+A GUI test had **blessed the bug**: it asserted that a 40×40 region inset 4 pixels on every side of a
+48×48 photograph lands at `(3, 4)` after a quarter turn, with a comment defending the 3 as "not a
+rounding slip". A region symmetric on all four sides must land where it was; it now does.
+
+**Effect** (one photograph turned, catalog of 68 unchanged, 21 queries):
+
+| measure | ORB before | ORB after | SIFT before | SIFT after |
+|---|---|---|---|---|
+| same top candidate at all four turns | 4/21 | **14/21** | 12/21 | 12/21 |
+| true partner's score, median swing | 0.134 | **0.000** | 0.081 | 0.072 |
+| true partner's score unchanged by turning | 7/21 | **14/21** | 7/21 | 7/21 |
+
+With every photograph turned together, the old code's whole-benchmark figures were a lottery: ORB
+AUC **0.486–0.732** across the four turns, 180° collapsing it to near chance. After the fix the spread
+narrows to **0.694–0.738**, and top-1 to four points (23/23/23/19 %).
+
+Three qualifications, all of which matter for a publication:
+
+1. **The pipeline is still not exactly orientation-invariant.** A ±1 grey-level rounding difference
+   survives the percentile stretch and `uint8` quantization, and still flips near-tie keypoints.
+   Shortlists became far more stable, not identical (identical top-5 at all four turns: 1/21).
+2. **It is an ORB fix.** SIFT+LNBNN barely felt the slip, because LNBNN pools hundreds of weighted votes
+   instead of 4–9 inliers. Its residual rotation sensitivity is its own — SIFT's orientation assignment —
+   and is unchanged.
+3. **Retrieval level did not improve.** On a single upright snapshot it moved the wrong way (ORB top-1
+   33 % → 24 %, median rank 3 → 18). Twelve true pairs cannot separate that from noise, and the
+   four-turn spread shows the old 33 % was one draw from 23–38 %. SIFT's four-turn numbers improved
+   slightly (top-1 47/52/47/52 % → 47/52/52/52 %; partner green 6/6/7/7 → 6/7/7/8).
+
+So: a correctness fix with a large stability gain for ORB and no measurable accuracy cost either way. It
+does **not** change the conclusion of §6.5 — recall remains the limit.
 
 ## 7. Approaches tested and rejected
 
@@ -315,6 +373,14 @@ All measured on the same verified pairs; none adopted.
    *Calotriton asper* material different individuals reach 0.50–0.67, so the bands must be re-measured
    before they mean anything for other species.
 7. **Amber is noisy in open search** (6 of 109 correct in round 3) and is labelled accordingly.
+8. **Orientation still moves shortlists a little, and used to move everything.** The two-pixel crop slip
+   is fixed (§6.7) and ORB's pair scores no longer change when a photograph is turned (median swing
+   0.000, 14/21 queries keep the same top candidate at all four turns), but a ±1 grey-level rounding
+   difference survives and SIFT's own orientation assignment is untouched, so a turned query can still
+   reorder a shortlist (identical top-5 at all four turns: 1/21). More seriously for anything published:
+   **every retrieval figure measured before 2026-09-18 came from a pipeline whose whole-benchmark AUC
+   ranged 0.486–0.732 with nothing changed but which way up the photographs sat.** Figures from that
+   period should be read as one draw from that range, not as point estimates.
 
 ## 9. Reproducibility
 

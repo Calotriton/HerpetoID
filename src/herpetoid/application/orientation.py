@@ -43,9 +43,20 @@ def rotate_image(image: np.ndarray, degrees: int) -> np.ndarray:
 def rotate_point(
     x: float, y: float, width: int, height: int, degrees: int
 ) -> tuple[float, float]:
-    """Where ``(x, y)`` of a ``width`` by ``height`` image lands once that image is turned."""
+    """Where ``(x, y)`` of a ``width`` by ``height`` image lands once that image is turned.
+
+    These are *places on the image plane*, not pixel indices: a drawn vertex sits between pixels,
+    and the far edge of the frame is at ``height``, not ``height - 1``. A clockwise quarter turn
+    therefore sends ``y`` to ``height - y``.
+
+    The distinction is not pedantry. ``height - 1 - y`` is the right map for a pixel index and the
+    wrong one for a vertex, and it moved every hand-drawn region a pixel per quarter turn. Together
+    with a bounding box that floored both ends (:meth:`herpetoid.api.ROI.bounding_box`) that slid
+    the crop handed to a matcher by two pixels — enough, on a band-passed pattern, to change 30-75%
+    of its pixels, flip ~40% of its keypoints, and move identification scores and shortlists.
+    """
     for _ in range(normalize_rotation(degrees) // 90):
-        x, y, width, height = height - 1 - y, x, height, width
+        x, y, width, height = height - y, x, height, width
     return x, y
 
 

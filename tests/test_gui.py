@@ -2065,7 +2065,7 @@ def test_turning_a_capture_keeps_it_turned_everywhere_and_carries_its_region(
     assert catalog.images_for(ids[0])[0].rotation == 90
     turned = editor.viewer.roi()
     assert turned is not None
-    assert turned.bounding_box() == (33, 4, 10, 20)  # the box turned with the picture
+    assert turned.bounding_box() == (34, 4, 10, 20)  # the box turned with the picture
 
     # Every other view loads it the same way up, region included.
     array, roi = observation_image_and_roi(app_state, ids[0])
@@ -2149,7 +2149,7 @@ def test_an_unsaved_region_survives_a_turn(app_state: AppState, tmp_path: Path, 
 
     turned = editor.viewer.roi()
     assert turned is not None
-    assert turned.bounding_box() == (37, 2, 4, 10)
+    assert turned.bounding_box() == (38, 2, 4, 10)
 
 
 def test_the_query_panel_can_turn_the_capture_and_the_turn_sticks(
@@ -2183,9 +2183,10 @@ def test_the_query_panel_can_turn_the_capture_and_the_turn_sticks(
     shown = editor.viewer.image()
     assert shown is not None and shown.shape[:2] == (before[1], before[0])
     roi = editor.viewer.roi()
-    # A quarter turn of a 48x48 photo: the box lands at (3, 4) -- the ``h - 1 - y`` term is
-    # the last column, not a rounding slip.
-    assert roi is not None and roi.bounding_box() == (3, 4, 40, 40)
+    # A region inset by 4 on every side of a 48x48 photo is symmetric, so a quarter turn has to
+    # leave it exactly where it was. It used to land at (3, 4), and this test blessed that as
+    # correct -- it was the one-pixel slip that moved identification scores when a photo was turned.
+    assert roi is not None and roi.bounding_box() == (4, 4, 40, 40)
 
 
 def test_turning_the_query_rebuilds_the_evidence_it_invalidates(
