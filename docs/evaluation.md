@@ -220,6 +220,50 @@ Slightly below the 57% of the research script in §6.5 above, for a principled r
 query's own descriptors are not in the catalog the distinctiveness is measured against, while the script
 left them in. The plugin's figure is the one that describes real use.
 
+### 6.6 Step 3: thresholds and rotation — what the evidence allowed
+
+Three rotation fixes were measured on the closed set and **all rejected**:
+
+| candidate fix | recaptures green | different pairs green | verdict |
+|---|---|---|---|
+| best of four orientations (ORB) | 1/12 → 2/12 | amber+ false pairs 14 → **102** | rejected |
+| best of four orientations (SIFT) | 5/12 → 5/12 | 3 → **8** green, 62 → **231** amber | rejected |
+| canonical orientation (deterministic long axis) | ORB amber 5/12 → 4/12 | — | rejected: **did not remove the dependence** (same pair still swings 0.14–0.27 when the input is turned first, because the axis is re-estimated from a resampled mask) |
+| canonical + best of 0°/180° | SIFT amber 5/12 → 6/12 | green 6 → **15** | rejected |
+
+Taking a maximum over several orientations is the multiple-comparisons effect of §6.5 applied
+deliberately: it buys one or two recaptures and multiplies false leads three- to sevenfold.
+
+**Thresholds were left alone**, because round 5 (a population the calibration never saw) vindicated the
+shipped bands rather than contradicting them:
+
+| band, round 5 | ORB | SIFT+LNBNN |
+|---|---|---|
+| green | 20/24 (83%) | **22/22 (100%)** |
+| amber | 6/40 (15%) | 5/12 (42%) |
+| weak | 7/32 | 6/62 |
+
+The closed-set observation that SIFT's amber band "adds nothing" did **not** generalise (42% on round 5),
+so recalibrating on the closed set alone would have repeated the ORB 1.1 mistake.
+
+**A reproducibility defect was found instead, in the plugin shipped the same day.** ORB is perfectly
+deterministic (0.000 swing over five RNG seeds, 0 of 2 346 pairs changing band), but SIFT was not: **247
+of 2 346 pairs changed colour band between runs**, true pairs swung up to 0.41, and the number of
+different animals shown green wandered between 2 and 8. The cause was FLANN's *approximate* neighbour
+search, not RANSAC (more RANSAC iterations changed nothing).
+
+| neighbour search | worst swing | pairs changing band | different pairs green | ms/query |
+|---|---|---|---|---|
+| FLANN `checks=64` (as first shipped) | 0.62 | 247/2346 | 2–8 | 198 |
+| FLANN `checks=512` | 0.32 | 65 | 1–2 | 266 |
+| FLANN `checks=2048` | 0.29 | 37 | 0–1 | 499 |
+| **exact (blocked matrix multiply)** | **0.00** | **0** | **2 (stable)** | **104** |
+
+Exact search is both reproducible and faster — a kd-tree buys little in 128 dimensions, and RootSIFT
+vectors are unit length, so the ranking is a dot product. Shipped, with the catalog walked in blocks:
+on the largest real catalog (457 photographs, 110 285 descriptors) an identification takes **0.64 s** and
+168 MB. Closed-set results are now identical across seeds (5/12 green, 2/2334 different, top-1 48%).
+
 **Two software defects found during this session:**
 
 1. **Scores move when a photograph is rotated** (median 0.10, worst 0.26 — enough to change band and

@@ -281,6 +281,35 @@ def test_sift_rank_survives_a_catalog_it_cannot_score() -> None:
     assert ranked.candidates[0].normalized_score == 0.0
 
 
+def test_sift_rank_is_reproducible() -> None:
+    """Regression: the first cut searched approximately, and the scores wandered between runs.
+
+    With FLANN's default search, 247 of the 2346 pairs in the owner's closed-set benchmark changed
+    colour band from one run to the next, and the count of different animals shown green wandered
+    between 2 and 8. A score a researcher cannot reproduce is not evidence, so the search is exact.
+    """
+    module = SalamandraSalamandraModule()
+    algorithm = SiftLnbnnAlgorithm()
+    roi = _body_roi()
+    query = algorithm.extract_features(
+        module.preprocess(_field_capture(_fire_salamander(11), np.random.default_rng(1)), roi)
+    )
+    catalog = []
+    for index, seed in enumerate((11, 21, 22)):
+        features = algorithm.extract_features(
+            module.preprocess(_field_capture(_fire_salamander(seed), np.random.default_rng(2)), roi)
+        )
+        features.ref = f"candidate-{index}"
+        catalog.append(features)
+
+    cv2.setRNGSeed(1)
+    first = {c.target_ref: c.normalized_score for c in algorithm.rank(query, catalog).candidates}
+    cv2.setRNGSeed(9_999)
+    second = {c.target_ref: c.normalized_score for c in algorithm.rank(query, catalog).candidates}
+
+    assert first == second
+
+
 def _newt_belly(seed: int, background_seed: int | None = None) -> np.ndarray:
     """A Calotriton asper belly: dark spots on a pale ground, held over wet rock (RGB)."""
     rng = np.random.default_rng(seed)

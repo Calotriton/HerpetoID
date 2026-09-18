@@ -111,6 +111,42 @@ def _root_sift(descriptors: np.ndarray) -> np.ndarray:
     return np.sqrt(values)
 
 
+#: Descriptors compared per block. Exact search is one matrix multiply, but the whole similarity
+#: matrix would not fit for a large catalog (a 500-photograph project holds ~120 000 descriptors), so
+#: the catalog is walked in blocks and only the running best neighbours are kept.
+_SEARCH_BLOCK = 20_000
+
+
+def _nearest(query: np.ndarray, data: np.ndarray, count: int) -> tuple[np.ndarray, np.ndarray]:
+    """The ``count`` nearest catalog descriptors for each query descriptor, exactly.
+
+    **Exact, not approximate, on purpose.** The first version used FLANN's default approximate
+    search, and the scores were not reproducible: on the owner's closed-set benchmark 247 of 2 346
+    pairs changed colour band between runs and the number of different animals shown green wandered
+    between 2 and 8. A score a researcher cannot reproduce is not evidence. Exact search is also
+    *faster* here (104 ms vs 198 ms per query): a kd-tree buys little in 128 dimensions, and RootSIFT
+    vectors are unit length, so the Euclidean ranking is just the dot product.
+    """
+    best_similarity = np.empty((len(query), 0), np.float32)
+    best_index = np.empty((len(query), 0), np.int64)
+    for start in range(0, len(data), _SEARCH_BLOCK):
+        block = data[start : start + _SEARCH_BLOCK]
+        similarity = query @ block.T
+        take = min(count, block.shape[0])
+        index = np.argpartition(-similarity, take - 1, axis=1)[:, :take]
+        best_similarity = np.hstack([best_similarity, np.take_along_axis(similarity, index, axis=1)])
+        best_index = np.hstack([best_index, index + start])
+        take = min(count, best_similarity.shape[1])
+        keep = np.argpartition(-best_similarity, take - 1, axis=1)[:, :take]
+        best_similarity = np.take_along_axis(best_similarity, keep, axis=1)
+        best_index = np.take_along_axis(best_index, keep, axis=1)
+    order = np.argsort(-best_similarity, axis=1)
+    best_similarity = np.take_along_axis(best_similarity, order, axis=1)
+    best_index = np.take_along_axis(best_index, order, axis=1)
+    # |a - b|^2 = 2 - 2(a.b) for unit vectors; clipped because rounding can push it just below zero.
+    return best_index, np.sqrt(np.maximum(2.0 - 2.0 * best_similarity, 0.0))
+
+
 def _extent(*keypoint_sets: np.ndarray) -> float:
     spans = [float(np.ptp(k[:, :2], axis=0).max()) for k in keypoint_sets if len(k) >= 2]
     return max(spans) if spans else 0.0
@@ -265,9 +301,7 @@ class SiftLnbnnAlgorithm(IdentificationAlgorithm):
         local = np.concatenate([np.arange(len(np.asarray(c.descriptors))) for c in usable])
         data = np.ascontiguousarray(np.concatenate([np.asarray(c.descriptors) for c in usable]), np.float32)
         neighbours = min(int(self._config["lnbnn_neighbours"]), max(1, len(data) - 1))
-        index = cv2.flann_Index(data, {"algorithm": 1, "trees": 4})  # type: ignore[attr-defined]
-        idx, dist = index.knnSearch(query_desc, neighbours + 1, params={"checks": 64})
-        dist = np.sqrt(np.maximum(np.asarray(dist, np.float32), 0.0))
+        idx, dist = _nearest(query_desc, data, neighbours + 1)
 
         # LNBNN: each vote is worth how much closer it is than the normaliser (the next neighbour).
         images = owner[idx]
