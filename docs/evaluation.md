@@ -339,6 +339,58 @@ Three qualifications, all of which matter for a publication:
 So: a correctness fix with a large stability gain for ORB and no measurable accuracy cost either way. It
 does **not** change the conclusion of §6.5 — recall remains the limit.
 
+### 6.8 Scale normalisation: adopted for ORB, rejected for SIFT (2026-09-18)
+
+The miner that proposed every verified pair in this record resizes each crop to a 700 px long side
+(`recapture_miner.body_crop`); the shipped algorithms do not resize at all. Isolating that single
+difference across the 663 verified pairs — same crops, same band-pass, only the resize changed —
+splits cleanly by algorithm:
+
+| long side | ORB AUC | ORB green | SIFT AUC | SIFT ≥10 inliers |
+|---|---|---|---|---|
+| native (median 798 px, range 190–2048) | 0.784 | 31/144 | **0.968** | **104/144** |
+| 400 px | **0.906** | 46/144 | 0.949 | 89/144 |
+| 700 px | 0.895 | **51/144** | 0.962 | 88/144 |
+| 1000 px | 0.860 | 32/144 | 0.959 | 93/144 |
+
+Rounds 1–4 were mined by the SIFT recipe with its resize switched **on**, so those pairs are biased
+toward the normalised arm. Round 5 (caracalshan, 33 recaptures) is the only population both recipes
+mined independently, and the ORB gain holds there — more strongly than overall:
+
+| round 5 only | native | 400 px | 700 px | 1000 px |
+|---|---|---|---|---|
+| ORB AUC | 0.730 | **0.905** | 0.867 | 0.825 |
+| ORB recaptures green | 9/33 | **19/33** | 15/33 | 6/33 |
+| SIFT AUC | **0.955** | 0.936 | 0.927 | 0.938 |
+| SIFT ≥10 inliers | **28/33** | 23/33 | 24/33 | 25/33 |
+
+**ORB more than doubles its recall on the least-biased data** (9/33 → 19/33), and its AUC rises
+monotonically as the target shrinks (0.730 → 0.825 → 0.867 → 0.905) — the shape of a real effect, not
+of noise. **SIFT is better left native**, in round 5 as well as overall, and that half of the finding
+runs *against* its own selection bias, which makes it the more trustworthy one.
+
+Mechanism: SIFT assigns every keypoint its own scale from scale-space extrema, so it was never
+scale-sensitive and resampling only discards detail. ORB's pyramid is much weaker across scale, and a
+fixed 1 000-keypoint budget spread over a 2 048 px crop samples the pattern far more sparsely than the
+same budget over 400 px.
+
+**Chosen target: a 400 px long side**, on AUC overall (0.906) and in round 5 (0.905). The 700 px column
+shows more greens overall (51 vs 46), but green counts are threshold-dependent and 700 px loses round 5
+on both measures.
+
+**Architectural consequence:** this belongs inside ORB's `extract_features`, *not* in the species
+module — one `Sample` feeds both algorithms, and the same change helps one and harms the other.
+
+Caveats, all of which matter for publication:
+
+1. Measured on the miner's **automatic** crops, not on hand-drawn ROIs, which is what the app actually
+   feeds its algorithms. The closed set (hand-drawn ROIs) cannot resolve a change of this size
+   (limitation 9), so transfer to the app's real input is plausible but **unverified**.
+2. Rounds 2–4 hold only 5, 17 and 7 recaptures; their individual rows mean little.
+3. The first attempt at this experiment was **invalid**: `body_crop` resizes before returning, so both
+   arms unknowingly ran the normalised pipeline and produced byte-identical results. It was discarded;
+   the rerun prints per-arm crop sizes so a repeat cannot pass unnoticed.
+
 ## 7. Approaches tested and rejected
 
 All measured on the same verified pairs; none adopted.
@@ -381,6 +433,18 @@ All measured on the same verified pairs; none adopted.
    **every retrieval figure measured before 2026-09-18 came from a pipeline whose whole-benchmark AUC
    ranged 0.486–0.732 with nothing changed but which way up the photographs sat.** Figures from that
    period should be read as one draw from that range, not as point estimates.
+9. **The closed-set benchmark cannot resolve small changes — which is most changes worth testing.**
+   Twelve true pairs among 2 346 comparisons give it very little power, and this was measured directly
+   rather than assumed (2026-09-18). Running the *identical* pipeline at six near-identical settings —
+   normalising the pattern's shorter side to 300, 310, 320, 330, 340 and 350 px, a 17 % range — moved
+   AUC by **0.168** (0.613–0.781) and top-1 by **5 of 21 queries**, *more* than changing the same
+   parameter by 2.7× (256→680 px: AUC span 0.154, top-1 span 3). Between 320 px and 330 px, a 3 %
+   change, top-1 fell 7/21 → 3/21. **Any result measured only on this benchmark is indistinguishable
+   from noise unless it exceeds roughly 0.17 AUC or 5 of 21 queries.** This is why the crop fix's
+   apparent top-1 drop in §6.7 carries no information, why the scale-normalisation question had to be
+   settled on the 663 verified pairs instead (§6.8) — a scan of six near-identical target sizes on the
+   closed set produced a spurious "optimum" that the placebo control dissolved — and why obtaining an
+   external benchmark outranks any further tuning.
 
 ## 9. Reproducibility
 
