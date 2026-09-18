@@ -1,8 +1,9 @@
 """ORB identification algorithm: keypoint matching with geometric verification.
 
-Pipeline: ORB features -> BFMatcher (Hamming) -> Lowe ratio test -> RANSAC similarity transform
-(rotation, uniform scale, translation) -> score from the number of matches that agree on it.
-Species-agnostic: it consumes only a standardized :class:`~herpetoid.api.Sample`.
+Pipeline: normalize the pattern's size -> ORB features -> BFMatcher (Hamming) -> Lowe ratio test ->
+RANSAC similarity transform (rotation, uniform scale, translation) -> score from the number of
+matches that agree on it. Species-agnostic: it consumes only a standardized
+:class:`~herpetoid.api.Sample`.
 
 **How the score is built, and why (v1.1).** Version 1.0 fitted a homography and averaged the inlier
 count with the *inlier ratio*. The first real ground truth, verified by eye from iNaturalist
@@ -49,6 +50,34 @@ green needs         precision in open search    recaptures green    different an
 Green is therefore a strong *candidate*, not a verdict. A score that accounts for how many
 candidates were searched would address the cause; this only moves the bar.
 
+**v1.4: the pattern is resized before detection.** Two captures of one animal taken from different
+distances produced descriptors that never corresponded. ORB's pyramid spans only ~3.6x, and a fixed
+keypoint budget spread over a 2 048 px crop samples the pattern far more sparsely than the same
+budget over 400 px. ``normalize_long_side`` (default 400, 0 disables) resizes the pattern first.
+Isolated on the owner's 663 verified pairs -- same crops, same band-pass, only the resize changed:
+
+===================  ==============  ==============  ===============  ===============
+metric                ORB native      ORB 400 px      SIFT native      SIFT 400 px
+===================  ==============  ==============  ===============  ===============
+AUC                   0.784           **0.906**       **0.968**        0.949
+recaptures found      31/144 green    **46/144**      **104/144**      89/144
+===================  ==============  ==============  ===============  ===============
+
+On round 5 -- the only population both recipes mined, so the least biased -- ORB goes from AUC 0.730
+and 9 of 33 recaptures green to **0.905 and 19 of 33**, with AUC rising monotonically as the target
+shrinks. It is an **ORB** fix: SIFT assigns every keypoint its own scale, was never scale-sensitive,
+and measures *worse* normalized (in round 5 too, against its own selection bias). That is why this
+lives in the algorithm and not in the species module, whose one ``Sample`` feeds both.
+
+Keypoints stay in the resized frame, so the RANSAC tolerance is computed on it exactly as measured;
+the factor rides in ``FeatureSet.meta`` (it survives the ``.npz`` round-trip) and :meth:`compare`
+maps correspondences back into each ``Sample``'s own pixels, since ``visualize_matches`` never sees
+the feature sets. Two caveats: it was measured on *automatic* crops rather than the hand-drawn
+regions the application feeds in, and the closed-set benchmark cannot verify the transfer (it cannot
+resolve anything below ~0.17 AUC -- ``docs/evaluation.md`` limitation 9). The application's crop also
+carries a **fixed** 64 px margin, so a 2 000 px crop resized to 400 leaves ~13 px, under ORB's 31 px
+edge threshold; the miner's padding was proportional. Re-measure when an external benchmark exists.
+
 The constants are measured, not universal: they were fitted with the default ``nfeatures`` on the
 fire-salamander pattern images. Different species or settings shift the count a chance match
 reaches, so re-measure before trusting the bands elsewhere. Rankings within one query do not depend
@@ -90,6 +119,17 @@ _DEFAULT_CONFIG: dict[str, Any] = {
     # many more it takes to carry the score most of the way to 1.
     "chance_inliers": 3.0,
     "inlier_scale": 10.0,
+    # Resize the pattern so its longer side is this many pixels before detecting (0 disables).
+    # Distinct from ``ransac_reproj_fraction`` above: that makes the *tolerance* relative to the
+    # region, this makes the *descriptors* comparable. ORB's pyramid spans only ~3.6x and a fixed
+    # keypoint budget samples a 2048 px crop far more sparsely than a 400 px one, so two captures
+    # taken at different distances produce descriptors that never correspond. On the 663
+    # owner-verified pairs this lifted ORB from AUC 0.784 to 0.906 and recaptures-in-green from
+    # 31/144 to 46/144; on round 5 -- the only population both recipes mined, so the least biased --
+    # from 0.730 and 9/33 to 0.905 and 19/33. It belongs here rather than in the species module
+    # because one Sample feeds both algorithms and SIFT, which sets each keypoint's own scale, is
+    # measurably *worse* normalized (docs/evaluation.md 6.8).
+    "normalize_long_side": 400,
 }
 
 _CONFIG_SCHEMA: dict[str, Any] = {
@@ -105,6 +145,12 @@ _CONFIG_SCHEMA: dict[str, Any] = {
     "max_scale_change": {"type": "float", "label": "Max scale change", "min": 1.5, "max": 10.0},
     "chance_inliers": {"type": "float", "label": "Chance inliers", "min": 0.0, "max": 50.0},
     "inlier_scale": {"type": "float", "label": "Inlier scale", "min": 0.5, "max": 100.0},
+    "normalize_long_side": {
+        "type": "int",
+        "label": "Normalize pattern to (px, 0 = off)",
+        "min": 0,
+        "max": 4000,
+    },
 }
 
 
@@ -144,6 +190,32 @@ def _extent(*keypoint_sets: np.ndarray) -> float:
     return max(spans) if spans else 0.0
 
 
+def _normalized(
+    gray: np.ndarray, mask: np.ndarray | None, long_side: int
+) -> tuple[np.ndarray, np.ndarray | None, float]:
+    """``gray`` and its mask resized so the longer side is ``long_side``, plus the factor applied.
+
+    The factor is returned rather than discarded because the detector then works in a frame of its
+    own: keypoints come back in resized pixels, and anything drawn over the caller's ``Sample`` --
+    the match overlay -- has to be mapped back through it.
+    """
+    if long_side <= 0:
+        return gray, mask, 1.0
+    longest = max(gray.shape[:2])
+    if longest <= 0:
+        return gray, mask, 1.0
+    factor = long_side / float(longest)
+    if abs(factor - 1.0) < 0.01:  # already there; resampling would only cost detail
+        return gray, mask, 1.0
+    size = (max(8, round(gray.shape[1] * factor)), max(8, round(gray.shape[0] * factor)))
+    interpolation = cv2.INTER_AREA if factor < 1.0 else cv2.INTER_CUBIC
+    resized = np.ascontiguousarray(cv2.resize(gray, size, interpolation=interpolation))
+    if mask is None:
+        return resized, None, factor
+    scaled_mask = cv2.resize(mask, size, interpolation=cv2.INTER_NEAREST)
+    return resized, np.ascontiguousarray(scaled_mask), factor
+
+
 def _one_to_one(matches: list[Any]) -> list[Any]:
     """Keep, for every target keypoint, only its closest query match.
 
@@ -169,7 +241,7 @@ def _transform_quality(transform: np.ndarray | None) -> float:
 
 
 class OrbAlgorithm(IdentificationAlgorithm):
-    """ORB + BFMatcher(Hamming) + Lowe ratio + RANSAC similarity transform."""
+    """ORB + BFMatcher(Hamming) + Lowe ratio + RANSAC similarity, on a size-normalized pattern."""
 
     def __init__(self, config: dict[str, Any] | None = None) -> None:
         self._config: dict[str, Any] = {**_DEFAULT_CONFIG, **(config or {})}
@@ -180,7 +252,7 @@ class OrbAlgorithm(IdentificationAlgorithm):
         return AlgorithmDescriptor(
             algorithm_id="orb",
             name="ORB (keypoint matching)",
-            version="1.3",
+            version="1.4",
             family=AlgorithmFamily.KEYPOINT,
             score_semantics=ScoreSemantics.SIMILARITY,
             requires_grayscale=False,
@@ -208,6 +280,7 @@ class OrbAlgorithm(IdentificationAlgorithm):
         mask = None
         if sample.roi_mask is not None:
             mask = (np.asarray(sample.roi_mask) > 0).astype(np.uint8) * 255
+        gray, mask, resize = _normalized(gray, mask, int(self._config["normalize_long_side"]))
         keypoints, descriptors = self._detector().detectAndCompute(gray, mask)
         if descriptors is None:
             descriptors = np.empty((0, 32), dtype=np.uint8)
@@ -222,6 +295,9 @@ class OrbAlgorithm(IdentificationAlgorithm):
             kind=AlgorithmFamily.KEYPOINT,
             descriptors=descriptors,
             keypoints=geometry,
+            # Keypoints are in the resized frame, so record what it took to get there. Serialized
+            # with the features, so a candidate loaded from the catalog maps back the same way.
+            meta={"resize": resize},
         )
 
     def compare(self, query: FeatureSet, target: FeatureSet) -> ComparisonResult:
@@ -275,7 +351,14 @@ class OrbAlgorithm(IdentificationAlgorithm):
         correspondences = None
         if accepted is not None and inliers > 0:
             flags = accepted.ravel().astype(bool)
-            correspondences = np.hstack([query_pts[flags], target_pts[flags]])
+            # Back into each Sample's own pixels. The detector worked on resized copies, but the
+            # match overlay draws these points over the patterns the species module produced, and
+            # the two images are resized by different amounts.
+            query_resize = float(query.meta.get("resize", 1.0)) or 1.0
+            target_resize = float(target.meta.get("resize", 1.0)) or 1.0
+            correspondences = np.hstack(
+                [query_pts[flags] / query_resize, target_pts[flags] / target_resize]
+            )
 
         return ComparisonResult(
             score=float(inliers),

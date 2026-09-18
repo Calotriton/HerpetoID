@@ -196,11 +196,14 @@ def test_orb_many_to_one_matches_cannot_fake_a_strong_match() -> None:
     assert result.inliers < 6
 
 
-def test_orb_tolerance_follows_region_size() -> None:
+def test_orb_matches_a_capture_as_convincingly_at_any_resolution() -> None:
     """The same capture at twice the resolution must match as convincingly.
 
-    The RANSAC tolerance is a fraction of the matched region, not a pixel count, so a full-resolution
-    crop is not held to a stricter standard than a thumbnail.
+    Two mechanisms serve this, and they are easy to confuse. The RANSAC tolerance is a *fraction* of
+    the matched region, so a full-resolution crop is not held to a stricter standard than a
+    thumbnail. Separately, ``normalize_long_side`` resizes the pattern before detection so the
+    *descriptors* correspond at all -- which is why the two tolerances below now agree instead of
+    scaling with the input, as they did before ORB 1.4.
     """
     module = CalotritonAsperModule(config={"denoise": False})
     algorithm = OrbAlgorithm()
@@ -212,8 +215,45 @@ def test_orb_tolerance_follows_region_size() -> None:
         query = algorithm.extract_features(module.preprocess(image, roi))
         turned = algorithm.extract_features(module.preprocess(_rotate(image, 12), roi))
         results.append(algorithm.compare(query, turned))
-    assert results[1].meta["tolerance_px"] > 1.5 * results[0].meta["tolerance_px"]
     assert all(result.normalized_score >= 0.5 for result in results)
+    # Both were normalized to the same frame, so neither is judged on a different pixel budget.
+    tolerances = [result.meta["tolerance_px"] for result in results]
+    assert tolerances[1] == pytest.approx(tolerances[0], rel=0.15)
+
+
+def test_orb_normalizing_the_pattern_recovers_a_scale_mismatched_recapture() -> None:
+    """Two captures of one animal taken at different distances must still match.
+
+    This is the change measured in ``docs/evaluation.md`` 6.8. On the 663 owner-verified pairs,
+    normalizing the pattern's long side before detection took ORB from AUC 0.784 to 0.906 and from
+    31/144 recaptures in green to 46/144; on round 5, the only population both recipes mined and so
+    the least biased, from 0.730 and 9/33 to 0.905 and 19/33. ORB's pyramid spans only ~3.6x and its
+    keypoint budget samples a large crop sparsely, so without this the descriptors never correspond.
+    """
+    module = CalotritonAsperModule(config={"denoise": False})
+    roi = api.ROI.full_image()
+    animal = _spot_pattern(3)
+    far = module.preprocess(_rotate(animal, 7), roi)  # the same animal, photographed further away
+    near = module.preprocess(cv2.resize(animal, (720, 720), interpolation=cv2.INTER_CUBIC), roi)
+
+    def score(long_side: int) -> float:
+        algorithm = OrbAlgorithm(config={"normalize_long_side": long_side})
+        return algorithm.compare(
+            algorithm.extract_features(near), algorithm.extract_features(far)
+        ).normalized_score
+
+    assert score(400) > score(0)
+
+    # The detector works in a frame of its own, so what it hands back for drawing must be mapped
+    # home: an overlay in resized pixels would sit off the animal, and only for rescaled captures.
+    algorithm = OrbAlgorithm()
+    result = algorithm.compare(algorithm.extract_features(near), algorithm.extract_features(far))
+    assert result.correspondences is not None and len(result.correspondences) > 0
+    points = np.asarray(result.correspondences)
+    assert points[:, 0].max() <= near.image.shape[1] and points[:, 1].max() <= near.image.shape[0]
+    assert points[:, 2].max() <= far.image.shape[1] and points[:, 3].max() <= far.image.shape[0]
+    # ...and not merely because everything collapsed into one corner of the frame.
+    assert points[:, 0].max() > 0.25 * near.image.shape[1]
 
 
 class TestSiftLnbnnConformance(AlgorithmContract):
