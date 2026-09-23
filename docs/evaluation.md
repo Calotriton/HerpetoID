@@ -5,8 +5,9 @@ the limitations are. Every number here was measured in this repository or in the
 at the end; none is taken from literature unless cited as such. Chronological detail lives in
 `session-log.md`; this file is the consolidated record.
 
-Last updated: 2026-09-17 (closed-set benchmark completed — see §6.5, which supersedes the retrieval
-figures in §6.3).
+Last updated: 2026-09-23 (AUC figures written on 2026-09-18 corrected for tied scores — see §6.9,
+which also records what that changed and what it did not; the closed-set benchmark of §6.5 still
+supersedes the retrieval figures in §6.3).
 
 ---
 
@@ -319,9 +320,13 @@ rounding slip". A region symmetric on all four sides must land where it was; it 
 | true partner's score, median swing | 0.134 | **0.000** | 0.081 | 0.072 |
 | true partner's score unchanged by turning | 7/21 | **14/21** | 7/21 | 7/21 |
 
-With every photograph turned together, the old code's whole-benchmark figures were a lottery: ORB
-AUC **0.486–0.732** across the four turns, 180° collapsing it to near chance. After the fix the spread
-narrows to **0.694–0.738**, and top-1 to four points (23/23/23/19 %).
+With every photograph turned together, the whole-benchmark figures move a little whichever way up they
+sit, and **the fix does not improve them**: ORB AUC **0.642–0.715** across the four turns before it and
+**0.614–0.696** after (top-1 33/23/23/38 % before, 23/23/23/19 % after). An earlier draft of this
+section claimed the opposite — a collapse to 0.486 at 180°, and a spread narrowing from 0.25 to 0.04.
+Both came from an AUC that mishandled tied scores (**§6.9**); recomputed, the collapse was never there
+and the spread barely changes. The case for the fix is the correctness argument and the shortlist
+stability above, which rest on pixel counts and rank counts — neither of which ties can distort.
 
 Three qualifications, all of which matter for a publication:
 
@@ -348,10 +353,10 @@ splits cleanly by algorithm:
 
 | long side | ORB AUC | ORB green | SIFT AUC | SIFT ≥10 inliers |
 |---|---|---|---|---|
-| native (median 798 px, range 190–2048) | 0.784 | 31/144 | **0.968** | **104/144** |
-| 400 px | **0.906** | 46/144 | 0.949 | 89/144 |
-| 700 px | 0.895 | **51/144** | 0.962 | 88/144 |
-| 1000 px | 0.860 | 32/144 | 0.959 | 93/144 |
+| native (median 798 px, range 190–2048) | 0.812 | 31/144 | 0.964 | **104/144** |
+| 400 px | **0.925** | 46/144 | 0.955 | 89/144 |
+| 700 px | 0.914 | **51/144** | 0.961 | 88/144 |
+| 1000 px | 0.871 | 32/144 | **0.965** | 93/144 |
 
 Rounds 1–4 were mined by the SIFT recipe with its resize switched **on**, so those pairs are biased
 toward the normalised arm. Round 5 (caracalshan, 33 recaptures) is the only population both recipes
@@ -359,9 +364,9 @@ mined independently, and the ORB gain holds there — more strongly than overall
 
 | round 5 only | native | 400 px | 700 px | 1000 px |
 |---|---|---|---|---|
-| ORB AUC | 0.730 | **0.905** | 0.867 | 0.825 |
+| ORB AUC | 0.718 | **0.899** | 0.861 | 0.814 |
 | ORB recaptures green | 9/33 | **19/33** | 15/33 | 6/33 |
-| SIFT AUC | **0.955** | 0.936 | 0.927 | 0.938 |
+| SIFT AUC | **0.948** | 0.932 | 0.925 | 0.934 |
 | SIFT ≥10 inliers | **28/33** | 23/33 | 24/33 | 25/33 |
 
 **ORB more than doubles its recall on the least-biased data** (9/33 → 19/33), and its AUC rises
@@ -390,6 +395,49 @@ Caveats, all of which matter for publication:
 3. The first attempt at this experiment was **invalid**: `body_crop` resizes before returning, so both
    arms unknowingly ran the normalised pipeline and produced byte-identical results. It was discarded;
    the rerun prints per-arm crop sizes so a repeat cannot pass unnoticed.
+
+### 6.9 A measurement error in this session's AUC figures (2026-09-23)
+
+Every AUC computed by the scripts written on 2026-09-18 used this formula: sort all scores descending,
+then read the positives' rank positions. It ignores **ties** — and because `np.argsort` is not stable,
+the direction of the error is not even predictable. ORB scores exactly `0.00` whenever a pair has too
+few agreeing matches, so ties are not an edge case here; they are most of the data.
+
+Measured on constructed cases:
+
+=====================================================  ========  =========  ===========
+case                                                    naive     correct    error
+=====================================================  ========  =========  ===========
+everything tied at 0 (true answer 0.500)                1.000     0.500      **+0.500**
+95 % of both sides at 0 (the cross-view shape)          0.754     0.510      **+0.244**
+positives spread, negatives at 0 (a working matcher)    0.850     0.851      −0.001
+no ties at all                                          0.930     0.930      0.000
+=====================================================  ========  =========  ===========
+
+**The earlier figures in this document were not computed that way.** The saved score matrices
+(`deep_eval/*matrix*.npz`) plus `ground_truth_all.csv` make this checkable, and §6.4's round-5 pair
+(**0.913 vs 0.798**) reproduces exactly under the tie-aware computation — the naive one gives
+0.921/0.806. Recomputing every saved matrix: most shifts are ≤0.008, but `sift_matrix_andrej`
+score/inliers move **−0.106** (0.706→0.812, 0.698→0.804) and `sift_matrix_philippevoidrot` score
+**+0.045**. Errors run in both directions and reach ~0.1.
+
+**Corrected here:** §6.7's orientation lottery (the "collapse to near chance at 180°" was an artefact;
+0.486 recomputes to 0.642, and the fix neither narrows the spread nor raises the mean), limitation 9
+(0.168 → 0.147), and the external benchmark (0.720 → **0.835**). **Unaffected anywhere:** top-1,
+median rank, band counts, recall and precision — all counts, which ties cannot distort. Every
+conclusion in this document rests on those rather than on AUC.
+
+**A second failure mode, found the same day: a shipped default silently swallowing an experiment's
+control.** Re-measuring §6.8 with a bare `OrbAlgorithm()` compared 400 px against 400 px, because ORB
+1.4 ships `normalize_long_side: 400` *as the default* — so the arm labelled "native" was resized too.
+Nothing errored; the table looked plausible. It was caught only because SIFT, computed in the script
+rather than through the plugin, reproduced to the digit (104/89/88/93 usable recaptures) while every
+ORB number moved. The same trap applies to the crop fix, now also shipped: the "before" arm of any
+orientation experiment must be monkeypatched back explicitly.
+
+**Practice adopted:** pin every control explicitly rather than relying on defaults, and persist raw
+scores so a statistic can be recomputed without reprocessing photographs. Scores now live in
+`deep_eval/scale_663_scores.npz` and `animalclef2026/herpetoid_scores/orb14_dorsal_scores.npz`.
 
 ## 7. Approaches tested and rejected
 
@@ -437,10 +485,12 @@ All measured on the same verified pairs; none adopted.
    Twelve true pairs among 2 346 comparisons give it very little power, and this was measured directly
    rather than assumed (2026-09-18). Running the *identical* pipeline at six near-identical settings —
    normalising the pattern's shorter side to 300, 310, 320, 330, 340 and 350 px, a 17 % range — moved
-   AUC by **0.168** (0.613–0.781) and top-1 by **5 of 21 queries**, *more* than changing the same
-   parameter by 2.7× (256→680 px: AUC span 0.154, top-1 span 3). Between 320 px and 330 px, a 3 %
-   change, top-1 fell 7/21 → 3/21. **Any result measured only on this benchmark is indistinguishable
-   from noise unless it exceeds roughly 0.17 AUC or 5 of 21 queries.** This is why the crop fix's
+   AUC by **0.147** (0.576–0.722) and top-1 by **5 of 21 queries** — a *wider* top-1 spread than a
+   2.7× change of the same parameter produces (256→680 px: top-1 span 3). Between 320 px and 330 px, a
+   3 % change, top-1 fell 7/21 → 3/21. **Any result measured only on this benchmark is
+   indistinguishable from noise unless it exceeds roughly 0.15 AUC or 5 of 21 queries.** (The spreads
+   are compared on top-1 rather than on AUC because only the placebo scan has been recomputed
+   tie-aware; see §6.9. Top-1 is a count and is unaffected either way.) This is why the crop fix's
    apparent top-1 drop in §6.7 carries no information, why the scale-normalisation question had to be
    settled on the 663 verified pairs instead (§6.8) — a scan of six near-identical target sizes on the
    closed set produced a spurious "optimum" that the placebo control dissolved — and why obtaining an
